@@ -1,45 +1,48 @@
 import React, { useState, useEffect } from 'react';
 import { useReports } from '../../context/ReportContext';
-import type { 
-  StoreLocation, 
-  ProductInventoryState, 
-  OrderNeededStatus, 
-  OrderItemRequest, 
-  DisplayCondition, 
-  StorePhoto, 
-  VisitReport 
+import type {
+  StoreLocation,
+  ProductInventoryState,
+  OrderNeededStatus,
+  OrderItemRequest,
+  DisplayCondition,
+  StorePhoto,
+  VisitReport
 } from '../../types';
 import { CASA_PONS_PRODUCTS } from '../../data/products';
-import { SAMPLE_STORE_PHOTOS } from '../../data/mockReports';
 import { StoreSelector } from './StoreSelector';
 import { StoreManagerInput } from './StoreManagerInput';
 import { InventorySection } from './InventorySection';
 import { OrderSection } from './OrderSection';
 import { DisplaySection } from './DisplaySection';
 import confetti from 'canvas-confetti';
-import { 
-  Send, 
-  CheckCircle, 
-  AlertCircle, 
-  ArrowRight, 
-  PlusCircle, 
+import {
+  Send,
+  CheckCircle,
+  AlertCircle,
+  ArrowRight,
+  PlusCircle,
   Store,
   Clock,
   Eye,
   UserCheck,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Mail,
+  ExternalLink
 } from 'lucide-react';
+import { generateMailtoUrl, generateGmailWebUrl } from '../../services/emailService';
 
 export const VisitReportForm: React.FC = () => {
-  const { 
-    addReport, 
-    activeMerchandiser, 
-    setActiveView, 
+  const {
+    addReport,
+    activeMerchandiser,
+    setActiveView,
     setSelectedReport,
     pendingStoreToLog,
     setPendingStoreToLog,
     getStoreManager,
-    sheetsWebhookUrl
+    sheetsWebhookUrl,
+    products,
   } = useReports();
 
   // Initial inventory with sensible defaults
@@ -49,11 +52,12 @@ export const VisitReportForm: React.FC = () => {
     futureDate.setMonth(today.getMonth() + 6);
     const dateStr = futureDate.toISOString().split('T')[0];
 
-    return CASA_PONS_PRODUCTS.map((prod, idx) => ({
+    return products.map((prod) => ({
       productId: prod.id,
       productName: prod.name,
       isAvailable: true,
-      stockOnHand: [18, 12, 24, 10, 16][idx] || 12,
+      availabilityStatus: 'Available',
+      stockOnHand: 12,
       expiryDate: dateStr,
     }));
   };
@@ -118,11 +122,8 @@ export const VisitReportForm: React.FC = () => {
       return;
     }
 
-    // Require at least one photo or attach default sample
-    let finalPhotos = [...photos];
-    if (finalPhotos.length === 0) {
-      finalPhotos = [SAMPLE_STORE_PHOTOS[0]];
-    }
+    // Photos (strictly real photos uploaded by merchandiser, optional)
+    const finalPhotos = [...photos];
 
     setIsSubmitting(true);
 
@@ -148,7 +149,7 @@ export const VisitReportForm: React.FC = () => {
         particleCount: 70,
         spread: 60,
         origin: { y: 0.6 },
-        colors: ['#C87D32', '#1D1D1F', '#10B981'],
+        colors: ['#0071E3', '#1D1D1F', '#10B981'],
       });
 
       setSubmittedReport(newRep);
@@ -184,7 +185,7 @@ export const VisitReportForm: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+    <div className="max-w-2xl mx-auto px-3.5 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-5 pb-28 sm:pb-8">
       {/* Apple-style Minimal Merchandiser Welcome Card */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-black/[0.06] shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -268,14 +269,50 @@ export const VisitReportForm: React.FC = () => {
             </div>
           </div>
 
+          {/* Replenishment Order Action Card */}
+          {(submittedReport.orderNeeded === 'Yes' || submittedReport.hasOrderRequest) && (
+            <div className="bg-stone-50 border border-stone-200/80 rounded-2xl p-3.5 text-left max-w-sm mx-auto space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-stone-900 flex items-center space-x-1.5">
+                  <Mail className="w-3.5 h-3.5 text-stone-700" />
+                  <span>Replenishment Order Requested</span>
+                </span>
+                <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200/60">
+                  Restock Alert
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-600 leading-snug">
+                Replenishment request recorded. Send order summary to the replenishment desk:
+              </p>
+              <div className="pt-0.5 flex items-center space-x-1.5">
+                <a
+                  href={generateGmailWebUrl(submittedReport)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-[11px] font-medium shadow-2xs transition active:scale-95"
+                >
+                  <Mail className="w-3 h-3 text-red-400" />
+                  <span>Send via Gmail</span>
+                </a>
+                <a
+                  href={generateMailtoUrl(submittedReport)}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-white hover:bg-stone-100 text-stone-700 text-[11px] font-medium border border-stone-200 transition active:scale-95"
+                >
+                  <ExternalLink className="w-3 h-3 text-stone-400" />
+                  <span>Apple Mail</span>
+                </a>
+              </div>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
             <button
               type="button"
               onClick={() => handleGoToManagerDashboard(submittedReport)}
-              className="w-full sm:w-auto px-5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-medium text-xs flex items-center justify-center space-x-1.5 shadow-2xs transition active:scale-[0.98]"
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-medium text-xs flex items-center justify-center space-x-1.5 shadow-2xs transition active:scale-[0.98]"
             >
-              <Eye className="w-3.5 h-3.5 text-[#FDE68A]" />
+              <Eye className="w-3.5 h-3.5 text-stone-200" />
               <span>Inspect in Dashboard</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
@@ -332,9 +369,9 @@ export const VisitReportForm: React.FC = () => {
           )}
 
           {/* Step 2: Product Lineup & Inventory */}
-          <section className="bg-stone-50/80 rounded-2xl p-4 sm:p-5 border border-black/[0.06] shadow-2xs">
+          <section className="bg-white rounded-3xl p-4 sm:p-5 border border-black/[0.06] shadow-2xs">
             <InventorySection
-              products={CASA_PONS_PRODUCTS}
+              products={products}
               inventory={inventory}
               onChange={setInventory}
             />
@@ -343,7 +380,7 @@ export const VisitReportForm: React.FC = () => {
           {/* Step 3: Order Requests */}
           <section>
             <OrderSection
-              products={CASA_PONS_PRODUCTS}
+              products={products}
               orderNeeded={orderNeeded}
               orderItems={orderItems}
               orderNotes={orderNotes}
@@ -368,12 +405,12 @@ export const VisitReportForm: React.FC = () => {
           </section>
 
           {/* Apple-style Frosted Floating Action Bar */}
-          <div className="sticky bottom-3 z-30 p-3 bg-white/85 backdrop-blur-xl rounded-2xl border border-stone-200/80 shadow-[0_8px_30px_rgb(0,0,0,0.06)] flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom))] sm:bottom-4 z-30 p-3 sm:p-3.5 bg-white/95 backdrop-blur-2xl rounded-2xl border border-black/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3">
             <div className="flex items-center space-x-2.5 w-full sm:w-auto">
               <div className="w-9 h-9 rounded-xl bg-stone-100 flex items-center justify-center shrink-0 text-stone-600">
                 <Store className="w-4 h-4 text-stone-700" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1 sm:flex-none">
                 <p className="text-xs font-semibold text-stone-900 truncate">
                   {selectedStore ? selectedStore.name : 'Select station to begin audit'}
                 </p>
@@ -388,7 +425,7 @@ export const VisitReportForm: React.FC = () => {
               disabled={isSubmitting}
               className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-medium text-xs flex items-center justify-center space-x-2 shadow-2xs active:scale-[0.98] transition disabled:opacity-50"
             >
-              <Send className="w-3.5 h-3.5 text-[#FDE68A]" />
+              <Send className="w-3.5 h-3.5 text-stone-200" />
               <span>{isSubmitting ? 'Submitting...' : 'Submit Visit Report'}</span>
             </button>
           </div>

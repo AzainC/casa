@@ -1,15 +1,16 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { StoreLocation, ChainType } from '../../types';
-import { STORES_DATA, REGIONS } from '../../data/stores';
-import { 
-  Store, 
-  Search, 
-  MapPin, 
-  Check, 
-  ChevronDown, 
-  X, 
-  Building2, 
-  Fuel, 
+import { REGIONS } from '../../data/stores';
+import { useReports } from '../../context/ReportContext';
+import {
+  Store,
+  Search,
+  MapPin,
+  Check,
+  ChevronDown,
+  X,
+  Building2,
+  Fuel,
   Clock
 } from 'lucide-react';
 
@@ -19,6 +20,7 @@ interface StoreSelectorProps {
 }
 
 export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onSelectStore }) => {
+  const { stores } = useReports();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [chainFilter, setChainFilter] = useState<'All' | ChainType>('All');
@@ -38,7 +40,7 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
 
   const filteredStores = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return STORES_DATA.filter((store) => {
+    return stores.filter((store) => {
       if (chainFilter !== 'All' && store.chain !== chainFilter) return false;
       if (regionFilter !== 'All' && store.region !== regionFilter) return false;
       if (!q) return true;
@@ -48,7 +50,7 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
         store.region.toLowerCase().includes(q)
       );
     });
-  }, [searchQuery, chainFilter, regionFilter]);
+  }, [stores, searchQuery, chainFilter, regionFilter]);
 
   const choithramsGroup = useMemo(
     () => filteredStores.filter((s) => s.chain === 'Choithrams'),
@@ -66,18 +68,18 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
   };
 
   const popularStores = useMemo(() => [
-    STORES_DATA.find(s => s.name === 'The Greens' && s.chain === 'Choithrams'),
-    STORES_DATA.find(s => s.name === 'Al Khail' && s.chain === 'Emarat'),
-    STORES_DATA.find(s => s.name === 'DIFC' && s.chain === 'Choithrams'),
-    STORES_DATA.find(s => s.name === 'Juwaiza (Sharjah)' && s.chain === 'Emarat'),
-  ].filter(Boolean) as StoreLocation[], []);
+    stores.find(s => s.name === 'The Greens' && s.chain === 'Choithrams'),
+    stores.find(s => s.name === 'Al Khail' && s.chain === 'Emarat'),
+    stores.find(s => s.name === 'DIFC' && s.chain === 'Choithrams'),
+    stores.find(s => s.name === 'Juwaiza (Sharjah)' && s.chain === 'Emarat'),
+  ].filter(Boolean) as StoreLocation[], [stores]);
 
   return (
     <div className="relative w-full" ref={containerRef}>
       {/* Label and Section Header */}
       <div className="flex items-center justify-between mb-1.5">
         <label className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 flex items-center">
-          <Store className="w-3.5 h-3.5 mr-1.5 text-stone-400" />
+          <Store className="w-3.5 h-3.5 mr-1.5 text-black text-bold" />
           Station / Retail Branch
           <span className="text-stone-400 ml-0.5">*</span>
         </label>
@@ -95,23 +97,21 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
           setIsOpen(!isOpen);
           setTimeout(() => inputRef.current?.focus(), 100);
         }}
-        className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
-          isOpen
-            ? 'border-stone-400 ring-2 ring-stone-200 bg-white shadow-xs'
-            : selectedStore
+        className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${isOpen
+          ? 'border-stone-400 ring-2 ring-stone-200 bg-white shadow-xs'
+          : selectedStore
             ? 'border-black/[0.08] bg-stone-50/60 hover:bg-stone-50'
             : 'border-dashed border-stone-300 bg-white hover:border-stone-400'
-        }`}
+          }`}
       >
         {selectedStore ? (
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${
-                  selectedStore.chain === 'Choithrams'
-                    ? 'bg-emerald-800'
-                    : 'bg-amber-700'
-                }`}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${selectedStore.chain === 'Choithrams'
+                  ? 'bg-emerald-800'
+                  : 'bg-amber-700'
+                  }`}
               >
                 {selectedStore.chain === 'Choithrams' ? (
                   <Building2 className="w-4 h-4" />
@@ -122,11 +122,10 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
               <div>
                 <div className="flex items-center space-x-1.5">
                   <span
-                    className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${
-                      selectedStore.chain === 'Choithrams'
-                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
-                        : 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                    }`}
+                    className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${selectedStore.chain === 'Choithrams'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
+                      : 'bg-amber-50 text-amber-800 border border-amber-200/60'
+                      }`}
                   >
                     {selectedStore.chain}
                   </span>
@@ -146,9 +145,8 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
               </span>
               <div className="w-6 h-6 rounded-full bg-stone-100 flex items-center justify-center text-stone-400">
                 <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                    isOpen ? 'rotate-180 text-stone-800' : ''
-                  }`}
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180 text-stone-800' : ''
+                    }`}
                 />
               </div>
             </div>
@@ -224,46 +222,43 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
             </div>
 
             {/* Chain Filter Tabs */}
-            <div className="flex items-center justify-between gap-1 pt-0.5">
-              <div className="flex items-center bg-stone-200/70 p-0.5 rounded-lg text-xs font-medium">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pt-0.5">
+              <div className="grid grid-cols-3 gap-1 bg-stone-200/70 p-0.5 rounded-xl text-xs font-medium w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setChainFilter('All')}
-                  className={`px-2.5 py-0.5 rounded-md transition ${
-                    chainFilter === 'All'
-                      ? 'bg-white text-stone-900 shadow-2xs'
-                      : 'text-stone-600 hover:text-stone-900'
-                  }`}
+                  className={`px-2 py-1.5 sm:py-1 rounded-lg transition text-center ${chainFilter === 'All'
+                    ? 'bg-white text-stone-900 shadow-2xs font-semibold'
+                    : 'text-stone-600 hover:text-stone-900'
+                    }`}
                 >
-                  All ({STORES_DATA.length})
+                  All ({stores.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setChainFilter('Choithrams')}
-                  className={`px-2 py-0.5 rounded-md transition flex items-center space-x-1 ${
-                    chainFilter === 'Choithrams'
-                      ? 'bg-emerald-800 text-white shadow-2xs'
-                      : 'text-emerald-800 hover:text-emerald-950'
-                  }`}
+                  className={`px-1.5 py-1.5 sm:py-1 rounded-lg transition flex items-center justify-center space-x-1 ${chainFilter === 'Choithrams'
+                    ? 'bg-emerald-800 text-white shadow-2xs font-semibold'
+                    : 'text-emerald-800 hover:text-emerald-950'
+                    }`}
                 >
-                  <Building2 className="w-3 h-3" />
-                  <span>Choithrams (24)</span>
+                  <Building2 className="w-3 h-3 shrink-0" />
+                  <span className="truncate">Choithrams</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setChainFilter('Emarat')}
-                  className={`px-2 py-0.5 rounded-md transition flex items-center space-x-1 ${
-                    chainFilter === 'Emarat'
-                      ? 'bg-amber-800 text-white shadow-2xs'
-                      : 'text-amber-800 hover:text-amber-950'
-                  }`}
+                  className={`px-1.5 py-1.5 sm:py-1 rounded-lg transition flex items-center justify-center space-x-1 ${chainFilter === 'Emarat'
+                    ? 'bg-amber-800 text-white shadow-2xs font-semibold'
+                    : 'text-amber-800 hover:text-amber-950'
+                    }`}
                 >
-                  <Fuel className="w-3 h-3" />
-                  <span>Emarat (89)</span>
+                  <Fuel className="w-3 h-3 shrink-0" />
+                  <span className="truncate">Emarat</span>
                 </button>
               </div>
 
-              <span className="text-[10px] text-stone-400">
+              <span className="text-[10px] text-stone-400 text-right hidden sm:block">
                 {filteredStores.length} found
               </span>
             </div>
@@ -275,11 +270,10 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
                   key={r}
                   type="button"
                   onClick={() => setRegionFilter(r)}
-                  className={`px-2 py-0.5 rounded-full whitespace-nowrap transition ${
-                    regionFilter === r
-                      ? 'bg-stone-900 text-white font-medium'
-                      : 'bg-stone-200/60 text-stone-600 hover:bg-stone-200'
-                  }`}
+                  className={`px-2 py-0.5 rounded-full whitespace-nowrap transition ${regionFilter === r
+                    ? 'bg-stone-900 text-white font-medium'
+                    : 'bg-stone-200/60 text-stone-600 hover:bg-stone-200'
+                    }`}
                 >
                   {r}
                 </button>
@@ -308,11 +302,10 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
                         <div
                           key={store.id}
                           onClick={() => handleSelect(store)}
-                          className={`flex items-center justify-between px-3 py-2 mx-1 my-0.5 rounded-xl cursor-pointer transition ${
-                            isSelected
-                              ? 'bg-emerald-50 text-emerald-900 font-semibold'
-                              : 'hover:bg-stone-50 text-stone-800'
-                          }`}
+                          className={`flex items-center justify-between px-3 py-2 mx-1 my-0.5 rounded-xl cursor-pointer transition ${isSelected
+                            ? 'bg-emerald-50 text-emerald-900 font-semibold'
+                            : 'hover:bg-stone-50 text-stone-800'
+                            }`}
                         >
                           <div className="flex items-center space-x-2.5">
                             <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center text-[10px] font-bold">
@@ -347,11 +340,10 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({ selectedStore, onS
                         <div
                           key={store.id}
                           onClick={() => handleSelect(store)}
-                          className={`flex items-center justify-between px-3 py-2 mx-1 my-0.5 rounded-xl cursor-pointer transition ${
-                            isSelected
-                              ? 'bg-amber-50 text-amber-900 font-semibold'
-                              : 'hover:bg-stone-50 text-stone-800'
-                          }`}
+                          className={`flex items-center justify-between px-3 py-2 mx-1 my-0.5 rounded-xl cursor-pointer transition ${isSelected
+                            ? 'bg-amber-50 text-amber-900 font-semibold'
+                            : 'hover:bg-stone-50 text-stone-800'
+                            }`}
                         >
                           <div className="flex items-center space-x-2.5">
                             <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center text-[10px] font-bold">

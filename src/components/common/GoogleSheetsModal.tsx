@@ -34,6 +34,23 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
     
+    // Check if standalone order email dispatch
+    if (payload.action === 'order_email_dispatch' && payload.orderEmailTo) {
+      try {
+        MailApp.sendEmail({
+          to: payload.orderEmailTo,
+          subject: payload.orderEmailSubject || ('Order Request: ' + (payload.storeName || 'Store Branch')),
+          htmlBody: payload.orderEmailHtml,
+          body: payload.orderEmailText || ''
+        });
+        return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Email sent to ' + payload.orderEmailTo }))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch (mailErr) {
+        return ContentService.createTextOutput(JSON.stringify({ status: 'error', error: mailErr.toString() }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    
     // Ensure header row exists
     ensureHeaders(sheet);
     
@@ -54,11 +71,11 @@ function doPost(e) {
       payload.totalStockOnHand || 0,
       payload.outOfStockCount || 0,
       payload.expiringSoonCount || 0,
-      payload.sku_smokedAlmonds || '',
-      payload.sku_roastedCashews || '',
-      payload.sku_rawWalnuts || '',
-      payload.sku_pistachios || '',
-      payload.sku_mixedNuts || '',
+      payload.sku_babyPecanCaramel || '',
+      payload.sku_chocoChipsMilk140 || '',
+      payload.sku_chocoChipsMilk40 || '',
+      payload.sku_chocoChipsPB140 || '',
+      payload.sku_chocoChipsPB40 || '',
       payload.orderNeeded || '',
       payload.orderDetails || '',
       payload.orderNotes || '',
@@ -74,6 +91,19 @@ function doPost(e) {
     // Format recently added row
     var lastRow = sheet.getLastRow();
     sheet.getRange(lastRow, 1, 1, row.length).setFontFamily('Arial').setFontSize(10);
+    
+    // Automatically dispatch aesthetic HTML email when an order is required
+    if (payload.sendOrderEmail && payload.orderEmailTo) {
+      try {
+        MailApp.sendEmail({
+          to: payload.orderEmailTo,
+          subject: 'Order Request: ' + (payload.storeName || 'Store Branch') + (payload.chain ? ' (' + payload.chain + ')' : ''),
+          htmlBody: payload.orderEmailHtml || '<p>Order requested for ' + (payload.storeName || 'Branch') + '</p>'
+        });
+      } catch (mailErr) {
+        // Mail delivery logged
+      }
+    }
     
     return ContentService.createTextOutput(JSON.stringify({ status: 'success', row: lastRow }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -101,11 +131,11 @@ function ensureHeaders(sheet) {
       'Total Stock On Hand (PCS)',
       'Out of Stock SKUs',
       'Expiring Soon SKUs',
-      'Smoked Almonds 150g',
-      'Roasted Cashews 150g',
-      'Raw Walnuts Halves 200g',
-      'Roasted Pistachios 150g',
-      'Mixed Nuts Deluxe 200g',
+      'Baby Pecan Caramel',
+      'Choco Chips Milk 140g',
+      'Choco Chips Milk 40g',
+      'Choco Chips PB 140g',
+      'Choco Chips PB 40g',
       'Order Needed?',
       'Requested Order Items',
       'Order Notes / LPO',
@@ -201,7 +231,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({ isOpen, on
         className="w-full max-w-xl bg-white rounded-3xl overflow-hidden shadow-2xl border border-black/[0.08] flex flex-col max-h-[90vh]"
       >
         {/* Header */}
-        <div className="p-4 sm:p-5 bg-[#FAF7F2] border-b border-black/[0.06] flex items-center justify-between">
+        <div className="p-4 sm:p-5 bg-[#F5F5F7] border-b border-black/[0.06] flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-2xs">
               <FileSpreadsheet className="w-5 h-5" />
@@ -334,7 +364,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({ isOpen, on
               <div className="flex justify-end pt-2">
                 <button
                   onClick={() => setActiveTab('settings')}
-                  className="px-4 py-2 bg-[#1D100A] text-white rounded-xl font-medium text-xs hover:bg-[#2A1810] transition inline-flex items-center space-x-1.5"
+                  className="px-4 py-2 bg-stone-900 text-white rounded-xl font-medium text-xs hover:bg-stone-800 transition inline-flex items-center space-x-1.5"
                 >
                   <span>Next: Connect Webhook URL</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -391,7 +421,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({ isOpen, on
                 <button
                   type="button"
                   onClick={handleSaveUrl}
-                  className="px-3 py-2 bg-[#1D100A] hover:bg-[#2A1810] text-white rounded-xl font-semibold text-xs flex items-center justify-center space-x-1.5 transition active:scale-95 shadow-2xs"
+                  className="px-3 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl font-semibold text-xs flex items-center justify-center space-x-1.5 transition active:scale-95 shadow-2xs"
                 >
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Save &amp; Connect</span>

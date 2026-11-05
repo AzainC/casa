@@ -1,255 +1,210 @@
-import type { VisitReport, StoreLocation } from '../types';
+import type { VisitReport, ProductItem, StoreLocation, StoreManagerContact } from '../types';
+import { CASA_PONS_PRODUCTS } from '../data/products';
 
-interface ExportOptions {
-  periodLabel: string;
-  startDate?: string;
-  endDate?: string;
-  reports: VisitReport[];
-  uncompletedStores: { store: StoreLocation; lastVisitDate: string | null }[];
-}
+/**
+ * Escapes CSV values and wraps in quotes if containing commas, quotes, or newlines.
+ */
+const escapeCSV = (value: string | number | boolean | null | undefined): string => {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
 
-export function exportToExcelXLS({
-  periodLabel,
-  reports,
-  uncompletedStores,
-}: ExportOptions) {
-  const sanitize = (text: string | number | null | undefined): string => {
-    if (text === null || text === undefined) return '';
-    return String(text)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;');
-  };
+/**
+ * Generates an Excel-ready CSV file with UTF-8 BOM so Microsoft Excel opens it natively
+ * with proper character encoding, column alignments, and all input fields.
+ *
+ * Product columns are dynamically generated from current catalog products,
+ * ensuring that any renamed product or added SKU is immediately reflected in Excel headers.
+ */
+export const exportReportsToExcel = (
+  reports: VisitReport[], 
+  periodLabel: string, 
+  customProducts?: ProductItem[]
+) => {
+  const products = (customProducts && customProducts.length > 0) ? customProducts : CASA_PONS_PRODUCTS;
 
-  const xmlContent = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
- <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
-  <Author>Casa Pons Operations</Author>
-  <Created>${new Date().toISOString()}</Created>
-  <Company>Casa Pons Fine Artisan Confectionery</Company>
- </DocumentProperties>
- <Styles>
-  <Style ss:ID="Default" ss:Name="Normal">
-   <Alignment ss:Vertical="Center"/>
-   <Borders/>
-   <Font ss:FontName="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" ss:Size="10" ss:Color="#1D1D1F"/>
-   <Interior/>
-   <NumberFormat/>
-   <Protection/>
-  </Style>
-  <Style ss:ID="HeaderStyle">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D2D2D7"/>
-   </Borders>
-   <Font ss:FontName="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" ss:Size="10" ss:Color="#FFFFFF" ss:Bold="1"/>
-   <Interior ss:Color="#2C1810" ss:Pattern="Solid"/>
-  </Style>
-  <Style ss:ID="SubHeaderStyle">
-   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
-   <Font ss:FontName="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" ss:Size="11" ss:Color="#2C1810" ss:Bold="1"/>
-   <Interior ss:Color="#F5F5F7" ss:Pattern="Solid"/>
-  </Style>
-  <Style ss:ID="TitleStyle">
-   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
-   <Font ss:FontName="-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif" ss:Size="14" ss:Color="#1D1D1F" ss:Bold="1"/>
-  </Style>
-  <Style ss:ID="BoldStyle">
-   <Font ss:FontName="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" ss:Size="10" ss:Color="#1D1D1F" ss:Bold="1"/>
-  </Style>
-  <Style ss:ID="NumberStyle">
-   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
-   <NumberFormat ss:Format="#,##0"/>
-  </Style>
-  <Style ss:ID="StatusCompleted">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" ss:Size="10" ss:Color="#15803D" ss:Bold="1"/>
-   <Interior ss:Color="#DCFCE7" ss:Pattern="Solid"/>
-  </Style>
-  <Style ss:ID="StatusUrgent">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" ss:Size="10" ss:Color="#B91C1C" ss:Bold="1"/>
-   <Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/>
-  </Style>
-  <Style ss:ID="StatusPending">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" ss:Size="10" ss:Color="#B45309" ss:Bold="1"/>
-   <Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/>
-  </Style>
- </Styles>
+  // Dynamically build headers for all products currently active in the catalog
+  const dynamicProductHeaders = products.flatMap((p) => [
+    `${p.name} - Available`,
+    `${p.name} - Stock (PCS)`,
+    `${p.name} - Expiry Date`,
+  ]);
 
- <!-- Worksheet 1: Visited Stores -->
- <Worksheet ss:Name="Visited Stores (${reports.length})">
-  <Table ss:DefaultRowHeight="20">
-   <Column ss:Width="95"/>
-   <Column ss:Width="85"/>
-   <Column ss:Width="75"/>
-   <Column ss:Width="160"/>
-   <Column ss:Width="85"/>
-   <Column ss:Width="95"/>
-   <Column ss:Width="120"/>
-   <Column ss:Width="70"/>
-   <Column ss:Width="70"/>
-   <Column ss:Width="110"/>
-   <Column ss:Width="80"/>
-   <Column ss:Width="170"/>
-   <Column ss:Width="85"/>
-   <Column ss:Width="100"/>
-   <Row ss:Height="26">
-    <Cell ss:MergeAcross="13" ss:StyleID="TitleStyle">
-     <Data ss:Type="String">Casa Pons Store Visit Reports • ${sanitize(periodLabel)}</Data>
-    </Cell>
-   </Row>
-   <Row ss:Height="22">
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Report ID</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Date</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Time</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Store Name</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Chain</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Region</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Merchandiser</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Stock (PCS)</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">OOS Count</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Order Needed</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Order Qty</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Display Condition</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Cleanliness</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Audit Status</Data></Cell>
-   </Row>
-   ${reports
-     .map((r) => {
-       const orderQty = r.orderItems
-         ? r.orderItems
-             .filter((i) => i.requested)
-             .reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)
-         : 0;
+  const headers = [
+    'Report ID',
+    'Date',
+    'Time',
+    'Merchandiser Name',
+    'Merchandiser ID',
+    'Store Chain',
+    'Store Location',
+    'Emirate / Region',
+    'Store Manager Name',
+    'Store Manager Phone',
+    'Total Stock On Hand (PCS)',
+    'Out of Stock Count',
+    'Expiring Soon Count',
+    // Dynamic Product SKU Columns
+    ...dynamicProductHeaders,
+    // Order Requests
+    'New Order Needed?',
+    'Requested Order Items & Quantities',
+    'Order Notes / LPO Reference',
+    // Merchandising & Display
+    'Display Condition Rating',
+    'Cleanliness Standards Met?',
+    'Display Observations / Notes',
+    'Photos Attached Count',
+    'Overall Status',
+  ];
 
-       const statusStyle =
-         r.status === 'Completed'
-           ? 'StatusCompleted'
-           : r.status === 'Urgent Restock'
-           ? 'StatusUrgent'
-           : 'StatusPending';
+  const rows = reports.map((rep) => {
+    // Dynamically retrieve SKU inventory metrics for each catalog product
+    const productDataCells = products.flatMap((p) => {
+      // Match by exact productId first, then case-insensitive name
+      const item = rep.inventory.find(
+        (i) => i.productId === p.id || i.productName.toLowerCase().trim() === p.name.toLowerCase().trim()
+      );
 
-       return `
-   <Row ss:Height="20">
-    <Cell><Data ss:Type="String">${sanitize(r.id)}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(r.formattedDate)}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(r.formattedTime)}</Data></Cell>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">${sanitize(r.store.name)}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(r.store.chain)}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(r.store.region)}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(r.merchandiserName)} (${sanitize(r.merchandiserId)})</Data></Cell>
-    <Cell ss:StyleID="NumberStyle"><Data ss:Type="Number">${r.totalStockOnHand}</Data></Cell>
-    <Cell ss:StyleID="NumberStyle"><Data ss:Type="Number">${r.outOfStockCount}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(r.orderNeeded)}</Data></Cell>
-    <Cell ss:StyleID="NumberStyle"><Data ss:Type="Number">${orderQty}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(r.displayCondition)}</Data></Cell>
-    <Cell><Data ss:Type="String">${r.isClean ? 'Yes (Clean)' : 'No (Needs Clean)'}</Data></Cell>
-    <Cell ss:StyleID="${statusStyle}"><Data ss:Type="String">${sanitize(r.status)}</Data></Cell>
-   </Row>`;
-     })
-     .join('')}
-  </Table>
- </Worksheet>
+      if (!item) {
+        return ['N/A', 0, ''];
+      }
 
- <!-- Worksheet 2: Uncompleted Branches -->
- <Worksheet ss:Name="Uncompleted Branches (${uncompletedStores.length})">
-  <Table ss:DefaultRowHeight="20">
-   <Column ss:Width="50"/>
-   <Column ss:Width="180"/>
-   <Column ss:Width="100"/>
-   <Column ss:Width="110"/>
-   <Column ss:Width="140"/>
-   <Column ss:Width="130"/>
-   <Row ss:Height="26">
-    <Cell ss:MergeAcross="5" ss:StyleID="TitleStyle">
-     <Data ss:Type="String">Uncompleted / Pending Store Visits • ${sanitize(periodLabel)}</Data>
-    </Cell>
-   </Row>
-   <Row ss:Height="22">
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">#</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Store / Station Name</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Chain</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Region</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Last Known Visit</Data></Cell>
-    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Period Status</Data></Cell>
-   </Row>
-   ${uncompletedStores
-     .map((item, idx) => `
-   <Row ss:Height="20">
-    <Cell><Data ss:Type="Number">${idx + 1}</Data></Cell>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">${sanitize(item.store.name)}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(item.store.chain)}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(item.store.region)}</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(item.lastVisitDate ? item.lastVisitDate : 'Never Visited')}</Data></Cell>
-    <Cell ss:StyleID="StatusUrgent"><Data ss:Type="String">Pending Visit</Data></Cell>
-   </Row>`)
-     .join('')}
-  </Table>
- </Worksheet>
+      let availabilityLabel = 'N/A';
+      if (item.availabilityStatus === 'N/A') {
+        availabilityLabel = 'N/A';
+      } else if (item.availabilityStatus === 'Out of Stock' || !item.isAvailable || Number(item.stockOnHand) === 0) {
+        availabilityLabel = 'No (Out of Stock)';
+      } else {
+        availabilityLabel = 'Yes (Available)';
+      }
 
- <!-- Worksheet 3: Network Audit Summary -->
- <Worksheet ss:Name="Coverage Summary">
-  <Table ss:DefaultRowHeight="20">
-   <Column ss:Width="180"/>
-   <Column ss:Width="120"/>
-   <Row ss:Height="26">
-    <Cell ss:MergeAcross="1" ss:StyleID="TitleStyle">
-     <Data ss:Type="String">Network Auditing KPI Summary</Data>
-    </Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">Audit Period</Data></Cell>
-    <Cell><Data ss:Type="String">${sanitize(periodLabel)}</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">Total Official Stores</Data></Cell>
-    <Cell ss:StyleID="NumberStyle"><Data ss:Type="Number">113</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">Choithrams Supermarkets</Data></Cell>
-    <Cell ss:StyleID="NumberStyle"><Data ss:Type="Number">24</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">Emarat Service Stations</Data></Cell>
-    <Cell ss:StyleID="NumberStyle"><Data ss:Type="Number">89</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">Stores Visited in Period</Data></Cell>
-    <Cell ss:StyleID="NumberStyle"><Data ss:Type="Number">${reports.length}</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">Uncompleted Branches</Data></Cell>
-    <Cell ss:StyleID="NumberStyle"><Data ss:Type="Number">${uncompletedStores.length}</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">Period Store Coverage Rate</Data></Cell>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">${Math.round((reports.length / 113) * 100)}%</Data></Cell>
-   </Row>
-   <Row>
-    <Cell ss:StyleID="BoldStyle"><Data ss:Type="String">Export Timestamp</Data></Cell>
-    <Cell><Data ss:Type="String">${new Date().toLocaleString()}</Data></Cell>
-   </Row>
-  </Table>
- </Worksheet>
-</Workbook>`;
+      return [
+        availabilityLabel,
+        Number(item.stockOnHand) || 0,
+        item.expiryDate || '',
+      ];
+    });
 
-  const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    // Summarize order items
+    const orderItemsSummary =
+      rep.orderNeeded === 'Yes'
+        ? rep.orderItems
+            .filter((i) => i.requested && i.quantity > 0)
+            .map((i) => `${i.productName}: ${i.quantity} PCS`)
+            .join('; ')
+        : 'None';
+
+    const baseData = [
+      escapeCSV(rep.id),
+      escapeCSV(rep.formattedDate),
+      escapeCSV(rep.formattedTime),
+      escapeCSV(rep.merchandiserName),
+      escapeCSV(rep.merchandiserId),
+      escapeCSV(rep.store.chain),
+      escapeCSV(rep.store.name),
+      escapeCSV(rep.store.region || ''),
+      escapeCSV(rep.managerName || 'Not Provided'),
+      escapeCSV(rep.managerPhone || 'Not Provided'),
+      escapeCSV(rep.totalStockOnHand),
+      escapeCSV(rep.outOfStockCount),
+      escapeCSV(rep.expiringSoonCount),
+      // Dynamic product metrics
+      ...productDataCells.map((val) => escapeCSV(val)),
+      // Order Requests
+      escapeCSV(rep.orderNeeded),
+      escapeCSV(orderItemsSummary || 'None'),
+      escapeCSV(rep.orderNotes || ''),
+      // Merchandising & Display
+      escapeCSV(rep.displayCondition),
+      escapeCSV(rep.isClean ? 'Yes (Clean & Dusted)' : 'No (Needs Cleaning)'),
+      escapeCSV(rep.displayNotes || ''),
+      escapeCSV(rep.photos ? rep.photos.length : 0),
+      escapeCSV(rep.status),
+    ];
+
+    return baseData.join(',');
+  });
+
+  // UTF-8 BOM (\uFEFF) ensures Excel opens special characters correctly
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+
+  // Trigger browser download
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
+  const sanitizedPeriod = periodLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `Casa_Pons_Visit_Reports_${sanitizedPeriod}_${new Date().toISOString().split('T')[0]}.csv`;
+
   const link = document.createElement('a');
-  link.href = url;
-  const fileName = `Casa_Pons_Field_Report_${periodLabel.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.xls`;
-  link.setAttribute('download', fileName);
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.visibility = 'hidden';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
-}
+};
+
+/**
+ * Generates an Excel-ready CSV file of all store managers across all retail stations.
+ */
+export const exportManagersToExcel = (
+  stores: StoreLocation[],
+  managers: Record<string, StoreManagerContact>,
+  reports: VisitReport[] = []
+) => {
+  const headers = [
+    'Store ID',
+    'Store Name',
+    'Retail Chain',
+    'Emirate / Region',
+    'Store Manager Name',
+    'Phone Number',
+    'Contact Status',
+    'Total Completed Visits',
+    'Last Visited Date',
+    'Last Visit Merchandiser',
+  ];
+
+  const rows = stores.map((store) => {
+    const contact = managers[store.id];
+    const storeVisits = reports
+      .filter((r) => r.store.id === store.id)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const lastVisit = storeVisits[0];
+
+    const hasContact = Boolean(contact && (contact.name?.trim() || contact.phone?.trim()));
+    const status = hasContact ? 'Verified on File' : 'Pending First Visit';
+
+    return [
+      escapeCSV(store.id),
+      escapeCSV(store.name),
+      escapeCSV(store.chain),
+      escapeCSV(store.region),
+      escapeCSV(contact?.name || 'Not on file'),
+      escapeCSV(contact?.phone || 'Not on file'),
+      escapeCSV(status),
+      escapeCSV(storeVisits.length),
+      escapeCSV(lastVisit ? lastVisit.formattedDate : 'No visits logged yet'),
+      escapeCSV(lastVisit ? lastVisit.merchandiserName : '—'),
+    ].join(',');
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const filename = `Casa_Pons_Store_Managers_Directory_${new Date().toISOString().split('T')[0]}.csv`;
+
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};

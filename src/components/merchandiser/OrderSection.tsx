@@ -1,13 +1,12 @@
 import React from 'react';
 import type { ProductItem, OrderNeededStatus, OrderItemRequest } from '../../types';
-import { 
-  ShoppingCart, 
-  Check, 
-  HelpCircle, 
-  Ban, 
-  Plus, 
-  Minus, 
-  FileText 
+import {
+  ShoppingCart,
+  Check,
+  Ban,
+  Plus,
+  Minus,
+  FileText
 } from 'lucide-react';
 
 interface OrderSectionProps {
@@ -86,33 +85,31 @@ export const OrderSection: React.FC<OrderSectionProps> = ({
     <div className="rounded-2xl bg-white p-4 sm:p-5 border border-black/[0.06] shadow-2xs space-y-4">
       {/* Step Header */}
       <div>
-        <div className="flex items-center space-x-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#A88B77]">
-          <ShoppingCart className="w-3.5 h-3.5 text-[#C87D32]" />
-          <span>Step 3 • Replenishment & Order Requests</span>
-          <span className="text-stone-400">• Required</span>
+        <div className="flex items-center space-x-1.5 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
+          <ShoppingCart className="w-3.5 h-3.5 text-stone-700" />
+          <span className='text-black text-bold'>Step 3 • Replenishment & Order Requests</span>
         </div>
         <p className="text-xs text-stone-500 mt-1">
-          Specify if store management requested replenishment or purchase order follow-up.
+          Specify if store management requested replenishment stock.
         </p>
       </div>
 
-      {/* New Order Needed Segmented Selector: Yes / No / Follow-up required */}
+      {/* New Order Needed Segmented Selector: Yes / No */}
       <div>
         <label className="block text-[11px] font-medium text-stone-500 mb-2">
-          New order required by branch?
+          New order placed by branch?
         </label>
-        <div className="grid grid-cols-3 gap-1.5 p-1 bg-stone-100/80 rounded-xl border border-black/[0.04]">
+        <div className="grid grid-cols-2 gap-1.5 p-1 bg-stone-100/80 rounded-xl border border-black/[0.04]">
           {/* YES */}
           <button
             type="button"
             onClick={() => onOrderNeededChange('Yes')}
-            className={`flex items-center justify-center space-x-1.5 py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
-              orderNeeded === 'Yes'
+            className={`flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${orderNeeded === 'Yes'
                 ? 'bg-white text-emerald-800 shadow-2xs border border-black/[0.06]'
                 : 'text-stone-600 hover:text-stone-900'
-            }`}
+              }`}
           >
-            <Check className={`w-3.5 h-3.5 ${orderNeeded === 'Yes' ? 'text-emerald-600' : 'text-stone-400'}`} />
+            <Check className={`w-3.5 h-3.5 shrink-0 ${orderNeeded === 'Yes' ? 'text-emerald-600' : 'text-stone-400'}`} />
             <span>Yes, Order</span>
           </button>
 
@@ -120,34 +117,19 @@ export const OrderSection: React.FC<OrderSectionProps> = ({
           <button
             type="button"
             onClick={() => onOrderNeededChange('No')}
-            className={`flex items-center justify-center space-x-1.5 py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
-              orderNeeded === 'No'
+            className={`flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${orderNeeded === 'No'
                 ? 'bg-white text-stone-900 shadow-2xs border border-black/[0.06]'
                 : 'text-stone-600 hover:text-stone-900'
-            }`}
+              }`}
           >
-            <Ban className={`w-3.5 h-3.5 ${orderNeeded === 'No' ? 'text-stone-700' : 'text-stone-400'}`} />
+            <Ban className={`w-3.5 h-3.5 shrink-0 ${orderNeeded === 'No' ? 'text-stone-700' : 'text-stone-400'}`} />
             <span>Not Needed</span>
-          </button>
-
-          {/* FOLLOW-UP REQUIRED */}
-          <button
-            type="button"
-            onClick={() => onOrderNeededChange('Follow-up required')}
-            className={`flex items-center justify-center space-x-1.5 py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
-              orderNeeded === 'Follow-up required'
-                ? 'bg-white text-amber-900 shadow-2xs border border-black/[0.06]'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <HelpCircle className={`w-3.5 h-3.5 ${orderNeeded === 'Follow-up required' ? 'text-amber-600' : 'text-stone-400'}`} />
-            <span>Follow-up</span>
           </button>
         </div>
       </div>
 
-      {/* Conditional Item Checklist & Quantities (if Yes or Follow-up) */}
-      {orderNeeded !== 'No' && (
+      {/* YES, ORDER SELECTED: SKUs Checklist & Quantities */}
+      {orderNeeded === 'Yes' && (
         <div className="space-y-3 pt-3 border-t border-black/[0.05] animate-in fade-in">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-stone-700 tracking-tight">
@@ -164,9 +146,8 @@ export const OrderSection: React.FC<OrderSectionProps> = ({
               return (
                 <div
                   key={prod.id}
-                  className={`p-3 transition-colors ${
-                    item.requested ? 'bg-amber-500/[0.04]' : 'hover:bg-white'
-                  }`}
+                  className={`p-3 transition-colors ${item.requested ? 'bg-amber-500/[0.04]' : 'hover:bg-white'
+                    }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     {/* Checkbox & Product Info */}

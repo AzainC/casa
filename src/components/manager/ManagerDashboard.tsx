@@ -1,37 +1,80 @@
 import React, { useState, useMemo } from 'react';
 import { useReports } from '../../context/ReportContext';
 import type { VisitReport, ChainType, StoreLocation, TimePeriodPreset, UncompletedStoreInfo } from '../../types';
-import { STORES_DATA } from '../../data/stores';
 import { ReportDetailModal } from './ReportDetailModal';
-import { 
-  Building2, 
-  Fuel, 
-  Search, 
-  Eye, 
-  User, 
-  Clock, 
-  MapPin, 
-  Package, 
-  Trash2, 
-  Calendar, 
-  RefreshCw, 
-  CheckCircle2, 
-  AlertCircle, 
+import { exportReportsToExcel } from '../../utils/excelExport';
+import {
+  Building2,
+  Fuel,
+  Search,
+  Eye,
+  User,
+  Clock,
+  MapPin,
+  Package,
+  Trash2,
+  Calendar,
+  CheckCircle2,
+  AlertCircle,
   PlusCircle,
   Phone,
-  UserCheck
+  UserCheck,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 
+// ---------- Date helpers (local time, not UTC) ----------
+const pad = (n: number) => String(n).padStart(2, '0');
+
+// Local date -> "YYYY-MM-DD"
+const toDateStr = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+// Local month -> "YYYY-MM"
+const toMonthStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+
+const monthLabel = (d: Date) =>
+  d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+// Current month + previous (count - 1) months
+const buildMonthOptions = (count = 6) => {
+  const now = new Date();
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    return {
+      value: toMonthStr(d),
+      label: i === 0 ? `${monthLabel(d)} (Current)` : monthLabel(d),
+    };
+  });
+};
+
+// Helper to reliably extract normalized YYYY-MM-DD from any report
+const getReportDateStr = (rep: VisitReport): string => {
+  if (rep.formattedDate && /^\d{4}-\d{2}-\d{2}$/.test(rep.formattedDate.trim())) {
+    return rep.formattedDate.trim();
+  }
+  if (rep.timestamp) {
+    try {
+      const d = new Date(rep.timestamp);
+      if (!isNaN(d.getTime())) {
+        return toDateStr(d);
+      }
+    } catch {}
+  }
+  return (rep.formattedDate || '').trim();
+};
+
 export const ManagerDashboard: React.FC = () => {
-  const { 
-    reports, 
-    deleteReport, 
-    selectedReport, 
-    setSelectedReport, 
-    resetToDefaults,
+  const {
+    reports,
+    deleteReport,
+    selectedReport,
+    setSelectedReport,
     setActiveView,
     setPendingStoreToLog,
-    getStoreManager
+    getStoreManager,
+    products,
+    stores
   } = useReports();
 
   // Active Tab: Visited Branches vs Uncompleted Branches
@@ -39,9 +82,12 @@ export const ManagerDashboard: React.FC = () => {
 
   // Time Period State
   const [periodPreset, setPeriodPreset] = useState<TimePeriodPreset>('this-month');
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-10'); // YYYY-MM
-  const [customStartDate, setCustomStartDate] = useState<string>('2026-10-01');
-  const [customEndDate, setCustomEndDate] = useState<string>('2026-10-21');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => toMonthStr(new Date())); // YYYY-MM
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    const n = new Date();
+    return toDateStr(new Date(n.getFullYear(), n.getMonth(), 1));
+  });
+  const [customEndDate, setCustomEndDate] = useState<string>(() => toDateStr(new Date()));
 
   // Filtering State
   const [chainFilter, setChainFilter] = useState<'All' | ChainType>('All');
@@ -49,39 +95,42 @@ export const ManagerDashboard: React.FC = () => {
   const [orderFilter, setOrderFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Available Months
-  const availableMonths = [
-    { value: '2026-10', label: 'October 2026 (Current)' },
-    { value: '2026-09', label: 'September 2026' },
-    { value: '2026-08', label: 'August 2026' },
-    { value: '2026-07', label: 'July 2026' },
-  ];
+  // Available Months (dynamic: current month + previous 5)
+  const availableMonths = useMemo(() => buildMonthOptions(6), []);
 
   // Compute Active Date Range Boundaries
   const dateRange = useMemo(() => {
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const todayStr = toDateStr(now);
 
     if (periodPreset === 'today') {
       return { start: todayStr, end: todayStr, label: `Today (${todayStr})` };
     }
 
+    if (periodPreset === 'yesterday') {
+      const yest = new Date(now);
+      yest.setDate(now.getDate() - 1);
+      const yestStr = toDateStr(yest);
+      return { start: yestStr, end: yestStr, label: `Yesterday (${yestStr})` };
+    }
+
     if (periodPreset === 'this-week') {
-      const startOfWeek = new Date();
+      const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - now.getDay());
-      const startStr = startOfWeek.toISOString().split('T')[0];
+      const startStr = toDateStr(startOfWeek);
       return { start: startStr, end: todayStr, label: `This Week (${startStr} to ${todayStr})` };
     }
 
     if (periodPreset === 'last-30-days') {
-      const past30 = new Date();
+      const past30 = new Date(now);
       past30.setDate(now.getDate() - 30);
-      const startStr = past30.toISOString().split('T')[0];
-      return { start: startStr, end: todayStr, label: `Last 30 Days` };
+      return { start: toDateStr(past30), end: todayStr, label: 'Last 30 Days' };
     }
 
     if (periodPreset === 'last-month') {
-      return { start: '2026-09-01', end: '2026-09-30', label: 'September 2026' };
+      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const last = new Date(now.getFullYear(), now.getMonth(), 0); // day 0 = last day of previous month
+      return { start: toDateStr(first), end: toDateStr(last), label: monthLabel(first) };
     }
 
     if (periodPreset === 'custom') {
@@ -93,22 +142,21 @@ export const ManagerDashboard: React.FC = () => {
     }
 
     // Default: 'this-month' (linked to selectedMonth)
-    const [year, month] = selectedMonth.split('-');
-    const lastDayOfMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
-    const startStr = `${selectedMonth}-01`;
-    const endStr = `${selectedMonth}-${String(lastDayOfMonth).padStart(2, '0')}`;
-    const monthObj = availableMonths.find(m => m.value === selectedMonth);
+    const targetMonth = selectedMonth || toMonthStr(now);
+    const [year, month] = targetMonth.split('-').map(Number);
+    const lastDayOfMonth = new Date(year, month, 0).getDate();
+    const monthObj = availableMonths.find((m) => m.value === targetMonth);
     return {
-      start: startStr,
-      end: endStr,
-      label: monthObj ? monthObj.label : `${selectedMonth}`,
+      start: `${targetMonth}-01`,
+      end: `${targetMonth}-${pad(lastDayOfMonth)}`,
+      label: monthObj ? monthObj.label : targetMonth,
     };
-  }, [periodPreset, selectedMonth, customStartDate, customEndDate]);
+  }, [periodPreset, selectedMonth, customStartDate, customEndDate, availableMonths]);
 
   // Filter reports within the date range
   const periodReports = useMemo(() => {
     return reports.filter((rep) => {
-      const repDate = rep.formattedDate;
+      const repDate = getReportDateStr(rep);
       return repDate >= dateRange.start && repDate <= dateRange.end;
     });
   }, [reports, dateRange]);
@@ -120,7 +168,7 @@ export const ManagerDashboard: React.FC = () => {
 
   // Uncompleted Stores for this period
   const uncompletedStores = useMemo<UncompletedStoreInfo[]>(() => {
-    return STORES_DATA.filter((store) => !visitedStoreIdsInPeriod.has(store.id)).map((store) => {
+    return stores.filter((store) => !visitedStoreIdsInPeriod.has(store.id)).map((store) => {
       const allStoreVisits = reports
         .filter((r) => r.store.id === store.id)
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -142,7 +190,7 @@ export const ManagerDashboard: React.FC = () => {
         managerContact: knownManager,
       };
     });
-  }, [visitedStoreIdsInPeriod, reports, getStoreManager]);
+  }, [stores, visitedStoreIdsInPeriod, reports, getStoreManager]);
 
   // Filtered Visited Reports
   const filteredVisitedReports = useMemo(() => {
@@ -187,9 +235,9 @@ export const ManagerDashboard: React.FC = () => {
 
   // KPI Metrics
   const stats = useMemo(() => {
-    const totalNetwork = STORES_DATA.length; // 113
+    const totalNetwork = stores.length || 1;
     const visitedCount = visitedStoreIdsInPeriod.size;
-    const uncompletedCount = totalNetwork - visitedCount;
+    const uncompletedCount = Math.max(0, totalNetwork - visitedCount);
     const coverageRate = Math.round((visitedCount / totalNetwork) * 100);
 
     const ordersNeeded = periodReports.filter((r) => r.orderNeeded === 'Yes').length;
@@ -203,7 +251,7 @@ export const ManagerDashboard: React.FC = () => {
       ordersNeeded,
       totalOutOfStock,
     };
-  }, [visitedStoreIdsInPeriod, periodReports]);
+  }, [visitedStoreIdsInPeriod, periodReports, stores]);
 
   const handleLogUncompletedBranch = (store: StoreLocation) => {
     setPendingStoreToLog(store);
@@ -226,103 +274,113 @@ export const ManagerDashboard: React.FC = () => {
             Manager Overview
           </h1>
           <p className="text-xs sm:text-sm text-stone-500 mt-1 max-w-xl">
-            Store visit progress, store manager directory, inventory health, and replenishment status.
+            Store visit progress, inventory compliance, and replenishment overview.
           </p>
         </div>
 
         {/* Minimal Utilities */}
-        <div className="flex items-center space-x-2 shrink-0">
+        <div className="flex items-center space-x-2 w-full sm:w-auto shrink-0">
           <button
-            onClick={resetToDefaults}
-            title="Reset to default multi-month records"
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-stone-50 text-stone-600 border border-stone-200 text-xs font-medium transition shadow-2xs"
+            onClick={() => exportReportsToExcel(filteredVisitedReports, dateRange.label, products)}
+            disabled={filteredVisitedReports.length === 0}
+            title={`Download full Excel spreadsheet for ${dateRange.label}`}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-1.5 px-4 py-2 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition active:scale-95 shadow-2xs disabled:opacity-40"
           >
-            <RefreshCw className="w-3.5 h-3.5 text-stone-400" />
-            <span>Reset Demo Data</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+            <span>Export to Excel</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-700/80 text-[10px] font-mono">
+              {filteredVisitedReports.length}
+            </span>
           </button>
         </div>
       </div>
 
       {/* Time Period & Month Selector Bar */}
-      <div className="bg-white rounded-2xl p-4 border border-black/[0.06] shadow-2xs space-y-3">
+      <div className="bg-white rounded-2xl p-3 sm:p-4 border border-black/[0.06] shadow-2xs space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Preset Buttons */}
-          <div className="flex items-center space-x-1 overflow-x-auto pb-1 lg:pb-0 text-xs">
-            <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mr-1 flex items-center">
+          {/* Preset Buttons - Single Line Uniform Height Pills (h-8) for Mobile & Desktop */}
+          <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-0.5 w-full lg:w-auto -mx-1 px-1 shrink-0">
+            <span className="h-8 inline-flex items-center text-[10px] font-semibold text-stone-400 uppercase tracking-wider mr-0.5 shrink-0">
               <Calendar className="w-3.5 h-3.5 mr-1 text-stone-400" />
               Period:
             </span>
             <button
-              onClick={() => setPeriodPreset('this-month')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                periodPreset === 'this-month'
-                  ? 'bg-stone-900 text-white shadow-2xs'
-                  : 'bg-stone-100/70 text-stone-600 hover:bg-stone-100'
-              }`}
+              onClick={() => {
+                setPeriodPreset('this-month');
+                setSelectedMonth(toMonthStr(new Date()));
+              }}
+              className={`h-8 px-3.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 inline-flex items-center justify-center ${periodPreset === 'this-month'
+                ? 'bg-stone-900 text-white shadow-2xs font-semibold'
+                : 'bg-stone-100/80 text-stone-600 hover:bg-stone-200/70 border border-black/[0.04]'
+                }`}
             >
               This Month
             </button>
             <button
               onClick={() => setPeriodPreset('today')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                periodPreset === 'today'
-                  ? 'bg-stone-900 text-white shadow-2xs'
-                  : 'bg-stone-100/70 text-stone-600 hover:bg-stone-100'
-              }`}
+              className={`h-8 px-3.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 inline-flex items-center justify-center ${periodPreset === 'today'
+                ? 'bg-stone-900 text-white shadow-2xs font-semibold'
+                : 'bg-stone-100/80 text-stone-600 hover:bg-stone-200/70 border border-black/[0.04]'
+                }`}
             >
               Today
             </button>
             <button
+              onClick={() => setPeriodPreset('yesterday')}
+              className={`h-8 px-3.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 inline-flex items-center justify-center ${periodPreset === 'yesterday'
+                ? 'bg-stone-900 text-white shadow-2xs font-semibold'
+                : 'bg-stone-100/80 text-stone-600 hover:bg-stone-200/70 border border-black/[0.04]'
+                }`}
+            >
+              Yesterday
+            </button>
+            <button
               onClick={() => setPeriodPreset('this-week')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                periodPreset === 'this-week'
-                  ? 'bg-stone-900 text-white shadow-2xs'
-                  : 'bg-stone-100/70 text-stone-600 hover:bg-stone-100'
-              }`}
+              className={`h-8 px-3.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 inline-flex items-center justify-center ${periodPreset === 'this-week'
+                ? 'bg-stone-900 text-white shadow-2xs font-semibold'
+                : 'bg-stone-100/80 text-stone-600 hover:bg-stone-200/70 border border-black/[0.04]'
+                }`}
             >
               This Week
             </button>
             <button
               onClick={() => setPeriodPreset('last-30-days')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                periodPreset === 'last-30-days'
-                  ? 'bg-stone-900 text-white shadow-2xs'
-                  : 'bg-stone-100/70 text-stone-600 hover:bg-stone-100'
-              }`}
+              className={`h-8 px-3.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 inline-flex items-center justify-center ${periodPreset === 'last-30-days'
+                ? 'bg-stone-900 text-white shadow-2xs font-semibold'
+                : 'bg-stone-100/80 text-stone-600 hover:bg-stone-200/70 border border-black/[0.04]'
+                }`}
             >
               Last 30 Days
             </button>
             <button
               onClick={() => setPeriodPreset('last-month')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                periodPreset === 'last-month'
-                  ? 'bg-stone-900 text-white shadow-2xs'
-                  : 'bg-stone-100/70 text-stone-600 hover:bg-stone-100'
-              }`}
+              className={`h-8 px-3.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 inline-flex items-center justify-center ${periodPreset === 'last-month'
+                ? 'bg-stone-900 text-white shadow-2xs font-semibold'
+                : 'bg-stone-100/80 text-stone-600 hover:bg-stone-200/70 border border-black/[0.04]'
+                }`}
             >
               Last Month
             </button>
             <button
               onClick={() => setPeriodPreset('custom')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                periodPreset === 'custom'
-                  ? 'bg-stone-900 text-white shadow-2xs'
-                  : 'bg-stone-100/70 text-stone-600 hover:bg-stone-100'
-              }`}
+              className={`h-8 px-3.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 inline-flex items-center justify-center ${periodPreset === 'custom'
+                ? 'bg-stone-900 text-white shadow-2xs font-semibold'
+                : 'bg-stone-100/80 text-stone-600 hover:bg-stone-200/70 border border-black/[0.04]'
+                }`}
             >
               Custom Range
             </button>
           </div>
 
-          {/* Month Dropdown or Custom Date Range Inputs */}
-          <div className="flex items-center space-x-2 self-start lg:self-auto text-xs">
+          {/* Month Dropdown or Custom Date Range Inputs (Uniform h-8) */}
+          <div className="flex items-center space-x-2 self-start lg:self-auto text-xs shrink-0">
             {periodPreset === 'this-month' && (
-              <div className="flex items-center space-x-1.5">
-                <span className="text-[11px] text-stone-400 font-medium">Month:</span>
+              <div className="flex items-center space-x-1.5 h-8">
+                <span className="text-[11px] text-stone-400 font-medium shrink-0">Month:</span>
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="px-2.5 py-1.5 rounded-xl bg-stone-100 border border-stone-200 text-stone-800 font-medium focus:outline-none"
+                  className="h-8 px-3 rounded-full bg-stone-100/90 border border-black/[0.06] text-stone-800 text-xs font-medium focus:outline-none"
                 >
                   {availableMonths.map((m) => (
                     <option key={m.value} value={m.value}>
@@ -334,19 +392,19 @@ export const ManagerDashboard: React.FC = () => {
             )}
 
             {periodPreset === 'custom' && (
-              <div className="flex items-center space-x-1.5 bg-stone-100 p-1 rounded-xl border border-stone-200">
+              <div className="flex items-center space-x-1.5 bg-stone-100/80 p-0.5 rounded-full border border-black/[0.06] h-8">
                 <input
                   type="date"
                   value={customStartDate}
                   onChange={(e) => setCustomStartDate(e.target.value)}
-                  className="px-2 py-1 rounded-lg text-xs bg-white text-stone-800 border border-stone-200 focus:outline-none"
+                  className="h-7 px-2 rounded-full text-xs bg-white text-stone-800 border border-black/[0.06] focus:outline-none"
                 />
-                <span className="text-stone-400 text-[10px]">to</span>
+                <span className="text-stone-400 text-[10px] px-0.5">to</span>
                 <input
                   type="date"
                   value={customEndDate}
                   onChange={(e) => setCustomEndDate(e.target.value)}
-                  className="px-2 py-1 rounded-lg text-xs bg-white text-stone-800 border border-stone-200 focus:outline-none"
+                  className="h-7 px-2 rounded-full text-xs bg-white text-stone-800 border border-black/[0.06] focus:outline-none"
                 />
               </div>
             )}
@@ -425,120 +483,116 @@ export const ManagerDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Segmented Tab Navigation: Visited vs Uncompleted */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="inline-flex p-1 bg-stone-200/60 rounded-xl text-xs font-medium">
-          <button
-            onClick={() => setActiveTab('visited')}
-            className={`px-4 py-1.5 rounded-lg transition-all duration-150 flex items-center space-x-1.5 ${
-              activeTab === 'visited'
+      {/* Controls & Filtering Console (Apple Unified Surface) */}
+      <div className="bg-white rounded-2xl p-3 sm:p-4 border border-black/[0.06] shadow-2xs space-y-3">
+        {/* Row 1: Visited vs Pending Tab Switcher & Chain Filter Pills */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="grid grid-cols-2 w-full sm:w-auto p-1 bg-stone-100 rounded-full text-xs font-medium border border-black/[0.04]">
+            <button
+              onClick={() => setActiveTab('visited')}
+              className={`px-4 py-1.5 rounded-full transition flex items-center justify-center space-x-1.5 ${activeTab === 'visited'
                 ? 'bg-white text-stone-900 shadow-2xs font-semibold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <CheckCircle2 className={`w-3.5 h-3.5 ${activeTab === 'visited' ? 'text-stone-900' : 'text-stone-400'}`} />
-            <span>Visited Branches</span>
-            <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-stone-100 text-stone-700 font-mono">
-              {filteredVisitedReports.length}
-            </span>
-          </button>
+                : 'text-stone-500 hover:text-stone-900'
+                }`}
+            >
+              <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'visited' ? 'text-stone-900' : 'text-stone-400'}`} />
+              <span>Visited</span>
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-stone-100 text-stone-700 font-mono">
+                {filteredVisitedReports.length}
+              </span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('uncompleted')}
-            className={`px-4 py-1.5 rounded-lg transition-all duration-150 flex items-center space-x-1.5 ${
-              activeTab === 'uncompleted'
+            <button
+              onClick={() => setActiveTab('uncompleted')}
+              className={`px-4 py-1.5 rounded-full transition flex items-center justify-center space-x-1.5 ${activeTab === 'uncompleted'
                 ? 'bg-white text-stone-900 shadow-2xs font-semibold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <AlertCircle className={`w-3.5 h-3.5 ${activeTab === 'uncompleted' ? 'text-rose-500' : 'text-stone-400'}`} />
-            <span>Uncompleted Branches</span>
-            <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-50 text-rose-700 font-mono font-medium">
-              {filteredUncompletedStores.length}
-            </span>
-          </button>
-        </div>
-
-        {/* Chain Filters: All, Choithrams, Emarat */}
-        <div className="flex items-center space-x-1 text-xs">
-          <button
-            onClick={() => setChainFilter('All')}
-            className={`px-2.5 py-1 rounded-lg font-medium transition ${
-              chainFilter === 'All'
-                ? 'bg-stone-900 text-white'
-                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-            }`}
-          >
-            All Chains
-          </button>
-          <button
-            onClick={() => setChainFilter('Choithrams')}
-            className={`px-2.5 py-1 rounded-lg font-medium transition flex items-center space-x-1 ${
-              chainFilter === 'Choithrams'
-                ? 'bg-emerald-800 text-white'
-                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-            }`}
-          >
-            <Building2 className="w-3 h-3" />
-            <span>Choithrams (24)</span>
-          </button>
-          <button
-            onClick={() => setChainFilter('Emarat')}
-            className={`px-2.5 py-1 rounded-lg font-medium transition flex items-center space-x-1 ${
-              chainFilter === 'Emarat'
-                ? 'bg-amber-800 text-white'
-                : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-            }`}
-          >
-            <Fuel className="w-3 h-3" />
-            <span>Emarat (89)</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Search Bar */}
-      <div className="bg-white rounded-2xl p-3 border border-black/[0.06] shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-3" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={
-              activeTab === 'visited'
-                ? 'Search visited stores, merchandisers, manager...'
-                : 'Search uncompleted station names, manager...'
-            }
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-stone-400 text-stone-900 placeholder:text-stone-400 font-medium"
-          />
-        </div>
-
-        {/* Visited Specific Secondary Filters */}
-        {activeTab === 'visited' && (
-          <div className="flex items-center space-x-2 self-start sm:self-auto text-xs">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-xl text-stone-700 font-medium text-xs focus:outline-none"
+                : 'text-stone-500 hover:text-stone-900'
+                }`}
             >
-              <option value="All">All Statuses</option>
-              <option value="Completed">Completed</option>
-              <option value="Urgent Restock">Urgent Restock</option>
-              <option value="Pending Review">Pending Review</option>
-            </select>
-
-            <select
-              value={orderFilter}
-              onChange={(e) => setOrderFilter(e.target.value)}
-              className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-xl text-stone-700 font-medium text-xs focus:outline-none"
-            >
-              <option value="All">All Order States</option>
-              <option value="Yes">Order Placed (Yes)</option>
-              <option value="Follow-up required">Follow-up Required</option>
-              <option value="No">No Order Needed</option>
-            </select>
+              <AlertCircle className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'uncompleted' ? 'text-rose-600' : 'text-stone-400'}`} />
+              <span>Pending</span>
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-50 text-rose-700 font-mono font-medium">
+                {filteredUncompletedStores.length}
+              </span>
+            </button>
           </div>
-        )}
+
+          {/* Chain Filters: All, Choithrams, Emarat */}
+          <div className="grid grid-cols-3 w-full sm:w-auto gap-1 text-xs">
+            <button
+              onClick={() => setChainFilter('All')}
+              className={`px-3 py-1.5 rounded-full font-medium transition text-center ${chainFilter === 'All'
+                ? 'bg-stone-900 text-white font-semibold'
+                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                }`}
+            >
+              All Chains
+            </button>
+            <button
+              onClick={() => setChainFilter('Choithrams')}
+              className={`px-3 py-1.5 rounded-full font-medium transition flex items-center justify-center space-x-1 ${chainFilter === 'Choithrams'
+                ? 'bg-emerald-800 text-white font-semibold'
+                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                }`}
+            >
+              <Building2 className="w-3 h-3 shrink-0" />
+              <span>Choithrams</span>
+            </button>
+            <button
+              onClick={() => setChainFilter('Emarat')}
+              className={`px-3 py-1.5 rounded-full font-medium transition flex items-center justify-center space-x-1 ${chainFilter === 'Emarat'
+                ? 'bg-amber-800 text-white font-semibold'
+                : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                }`}
+            >
+              <Fuel className="w-3 h-3 shrink-0" />
+              <span>Emarat</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: Search Input & Status Dropdowns */}
+        <div className="pt-2.5 border-t border-stone-100 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <div className="relative w-full sm:flex-1">
+            <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={
+                activeTab === 'visited'
+                  ? 'Search visited stores, merchandisers, manager...'
+                  : 'Search uncompleted station names, manager...'
+              }
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-stone-50 border border-black/[0.06] rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 text-stone-900 placeholder:text-stone-400 font-medium"
+            />
+          </div>
+
+          {activeTab === 'visited' && (
+            <div className="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto text-xs">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-1.5 bg-stone-50 border border-black/[0.06] rounded-xl text-stone-700 font-medium text-xs focus:outline-none focus:bg-white w-full sm:w-auto"
+              >
+                <option value="All">All Statuses</option>
+                <option value="Completed">Completed</option>
+                <option value="Urgent Restock">Urgent Restock</option>
+                <option value="Pending Review">Pending Review</option>
+              </select>
+
+              <select
+                value={orderFilter}
+                onChange={(e) => setOrderFilter(e.target.value)}
+                className="px-3 py-1.5 bg-stone-50 border border-black/[0.06] rounded-xl text-stone-700 font-medium text-xs focus:outline-none focus:bg-white w-full sm:w-auto"
+              >
+                <option value="All">All Order States</option>
+                <option value="Yes">Order Placed (Yes)</option>
+                <option value="No">No Order Needed</option>
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* TAB 1: VISITED STORES FEED (Includes Store Manager Name & Phone) */}
@@ -563,11 +617,10 @@ export const ManagerDashboard: React.FC = () => {
                   {/* Station Identity & Merchandiser Details */}
                   <div className="flex items-start space-x-3.5">
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${
-                        report.store.chain === 'Choithrams'
-                          ? 'bg-emerald-800'
-                          : 'bg-amber-700'
-                      }`}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${report.store.chain === 'Choithrams'
+                        ? 'bg-emerald-800'
+                        : 'bg-amber-700'
+                        }`}
                     >
                       {report.store.chain === 'Choithrams' ? (
                         <Building2 className="w-5 h-5" />
@@ -579,11 +632,10 @@ export const ManagerDashboard: React.FC = () => {
                     <div>
                       <div className="flex items-center space-x-2">
                         <span
-                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${
-                            report.store.chain === 'Choithrams'
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
-                              : 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                          }`}
+                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${report.store.chain === 'Choithrams'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200/60'
+                            }`}
                         >
                           {report.store.chain}
                         </span>
@@ -595,7 +647,7 @@ export const ManagerDashboard: React.FC = () => {
                         </span>
                       </div>
 
-                      <h3 className="text-base font-semibold text-stone-900 group-hover:text-amber-800 transition-colors mt-0.5">
+                      <h3 className="text-base font-semibold text-stone-900 group-hover:text-stone-600 transition-colors mt-0.5">
                         {report.store.name}
                       </h3>
 
@@ -603,7 +655,7 @@ export const ManagerDashboard: React.FC = () => {
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-500 mt-1">
                         <span className="flex items-center text-stone-700 font-medium">
                           <User className="w-3 h-3 mr-1 text-stone-400" />
-                          {report.merchandiserName} ({report.merchandiserId})
+                          {report.merchandiserName}
                         </span>
 
                         {/* Store Manager Column Info */}
@@ -664,13 +716,10 @@ export const ManagerDashboard: React.FC = () => {
                         Order
                       </span>
                       <span
-                        className={`inline-flex items-center px-2 py-0.2 rounded-full text-[10px] font-medium ${
-                          report.orderNeeded === 'Yes'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
-                            : report.orderNeeded === 'Follow-up required'
-                            ? 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                            : 'bg-stone-100 text-stone-600'
-                        }`}
+                        className={`inline-flex items-center px-2 py-0.2 rounded-full text-[10px] font-medium ${report.orderNeeded === 'Yes'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
+                          : 'bg-stone-100 text-stone-600'
+                          }`}
                       >
                         {report.orderNeeded}
                       </span>
@@ -754,9 +803,8 @@ export const ManagerDashboard: React.FC = () => {
                 >
                   <div className="flex items-start space-x-3 min-w-0">
                     <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${
-                        item.store.chain === 'Choithrams' ? 'bg-emerald-800' : 'bg-amber-700'
-                      }`}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${item.store.chain === 'Choithrams' ? 'bg-emerald-800' : 'bg-amber-700'
+                        }`}
                     >
                       {item.store.chain === 'Choithrams' ? (
                         <Building2 className="w-4 h-4" />
@@ -768,11 +816,10 @@ export const ManagerDashboard: React.FC = () => {
                     <div className="min-w-0">
                       <div className="flex items-center space-x-1.5">
                         <span
-                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${
-                            item.store.chain === 'Choithrams'
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
-                              : 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                          }`}
+                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${item.store.chain === 'Choithrams'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200/60'
+                            }`}
                         >
                           {item.store.chain}
                         </span>
@@ -787,7 +834,7 @@ export const ManagerDashboard: React.FC = () => {
                       </h4>
 
                       {/* Known Manager Contact info if retained */}
-                      {item.managerContact ? (
+                      {item.managerContact && item.managerContact.name.trim() ? (
                         <p className="text-[11px] text-stone-600 mt-0.5 flex items-center truncate">
                           <UserCheck className="w-3 h-3 mr-1 text-stone-400 shrink-0" />
                           <span>Manager: <strong>{item.managerContact.name}</strong></span>

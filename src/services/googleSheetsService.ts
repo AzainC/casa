@@ -1,4 +1,5 @@
 import type { VisitReport } from '../types';
+import { getOrderNotificationEmail, generateOrderEmailHtml } from './emailService';
 
 export const SHEETS_STORAGE_KEY = 'casa_pons_sheets_webhook_url';
 
@@ -59,18 +60,18 @@ export const formatReportForSheets = (report: VisitReport) => {
     isClean: report.isClean ? 'Yes (Clean)' : 'No (Needs Cleaning)',
     displayNotes: report.displayNotes || '',
     status: report.status,
-    // Include SKU columns
-    sku_smokedAlmonds: skuSummaries['Casa Pons Smoked Almonds 150g'] || '',
-    sku_roastedCashews: skuSummaries['Casa Pons Roasted Cashews Salted 150g'] || '',
-    sku_rawWalnuts: skuSummaries['Casa Pons Raw Walnuts Halves 200g'] || '',
-    sku_pistachios: skuSummaries['Casa Pons Roasted Pistachios 150g'] || '',
-    sku_mixedNuts: skuSummaries['Casa Pons Mixed Nuts Deluxe 200g'] || '',
-    // Photos count and preview strings
+    // Include 5 Official Casa Pons SKU columns
+    sku_babyPecanCaramel: skuSummaries['Baby Pecan Caramel'] || '',
+    sku_chocoChipsMilk140: skuSummaries['Choco Chips Milk Chocolate 140g'] || '',
+    sku_chocoChipsMilk40: skuSummaries['Choco Chips Milk Chocolate 40g'] || '',
+    sku_chocoChipsPB140: skuSummaries['Choco Chips with Peanut Butter 140g'] || '',
+    sku_chocoChipsPB40: skuSummaries['Choco Chips with Peanut Butter 40g'] || '',
+    // Photos count (omitting heavy base64 dataUrls to minimize webhook egress)
     photoCount: report.photos ? report.photos.length : 0,
-    photos: report.photos ? report.photos.map(p => ({
-      caption: p.caption,
-      dataUrl: p.dataUrl,
-    })) : [],
+    // Automatic Order Email Dispatch
+    sendOrderEmail: report.orderNeeded === 'Yes' || report.hasOrderRequest,
+    orderEmailTo: getOrderNotificationEmail(),
+    orderEmailHtml: report.orderNeeded === 'Yes' || report.hasOrderRequest ? generateOrderEmailHtml(report) : '',
   };
 };
 

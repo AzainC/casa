@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { VisitReport, StorePhoto } from '../../types';
-import { CASA_PONS_PRODUCTS } from '../../data/products';
+import { useReports } from '../../context/ReportContext';
+import { fetchReportPhotos } from '../../services/supabaseClient';
 import { 
   X, 
   MapPin, 
@@ -17,8 +18,10 @@ import {
   AlertTriangle, 
   ZoomIn,
   UserCheck,
-  Phone
+  Phone,
+  Mail
 } from 'lucide-react';
+import { generateMailtoUrl } from '../../services/emailService';
 
 interface ReportDetailModalProps {
   report: VisitReport;
@@ -26,7 +29,21 @@ interface ReportDetailModalProps {
 }
 
 export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, onClose }) => {
+  const { products } = useReports();
   const [activePhoto, setActivePhoto] = useState<StorePhoto | null>(null);
+  const [modalPhotos, setModalPhotos] = useState<StorePhoto[]>(() => report.photos || []);
+
+  useEffect(() => {
+    if (!report.photos || report.photos.length === 0 || !report.photos[0]?.dataUrl) {
+      fetchReportPhotos(report.id).then((photos) => {
+        if (photos && photos.length > 0) {
+          setModalPhotos(photos);
+        }
+      });
+    } else {
+      setModalPhotos(report.photos);
+    }
+  }, [report.id, report.photos]);
 
   const handlePrint = () => {
     window.print();
@@ -98,7 +115,6 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, on
                 <User className="w-3.5 h-3.5 mr-1 text-stone-400" />
                 {report.merchandiserName}
               </p>
-              <span className="text-[10px] text-stone-400 font-mono">{report.merchandiserId}</span>
             </div>
 
             <div>
@@ -169,9 +185,9 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, on
 
             <div className="border border-stone-200/70 rounded-2xl overflow-hidden divide-y divide-stone-100">
               {report.inventory.map((item, idx) => {
-                const productMeta = CASA_PONS_PRODUCTS.find((p) => p.id === item.productId);
+                const productMeta = products.find((p) => p.id === item.productId || p.name.toLowerCase() === item.productName.toLowerCase());
                 return (
-                  <div key={item.productId} className="p-3 bg-white hover:bg-stone-50 flex items-center justify-between gap-3">
+                  <div key={item.productId || idx} className="p-3 bg-white hover:bg-stone-50 flex items-center justify-between gap-3">
                     <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 rounded-xl overflow-hidden bg-stone-100 shrink-0 border border-stone-200/70">
                         {productMeta && (
@@ -191,12 +207,14 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, on
                       {/* Shelf Availability */}
                       <span
                         className={`text-[10px] font-medium px-2 py-0.2 rounded-full ${
-                          item.isAvailable
+                          item.availabilityStatus === 'N/A'
+                            ? 'bg-stone-100 text-stone-600 border border-stone-200'
+                            : item.isAvailable
                             ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
                             : 'bg-rose-50 text-rose-800 border border-rose-200/60'
                         }`}
                       >
-                        {item.isAvailable ? 'On Shelf' : 'OOS'}
+                        {item.availabilityStatus === 'N/A' ? 'N/A' : item.isAvailable ? 'On Shelf' : 'OOS'}
                       </span>
 
                       {/* Stock On Hand */}
@@ -235,8 +253,6 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, on
                   className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
                     report.orderNeeded === 'Yes'
                       ? 'bg-emerald-100 text-emerald-800'
-                      : report.orderNeeded === 'Follow-up required'
-                      ? 'bg-amber-100 text-amber-800'
                       : 'bg-stone-200 text-stone-700'
                   }`}
                 >
@@ -276,6 +292,22 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, on
                     Order Remarks
                   </span>
                   <p className="text-xs text-stone-600 mt-0.5 italic">"{report.orderNotes}"</p>
+                </div>
+              )}
+
+              {(report.orderNeeded === 'Yes' || report.hasOrderRequest) && (
+                <div className="pt-2 border-t border-stone-200/60 flex items-center justify-between">
+                  <span className="text-[11px] text-stone-500 flex items-center space-x-1">
+                    <Mail className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Replenishment Order Desk</span>
+                  </span>
+                  <a
+                    href={generateMailtoUrl(report)}
+                    className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-medium border border-amber-200 transition"
+                  >
+                    <Mail className="w-3 h-3 text-amber-700" />
+                    <span>Send Order Email</span>
+                  </a>
                 </div>
               )}
             </div>
@@ -331,15 +363,15 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, on
           </div>
 
           {/* Section 4: Display Photos Gallery */}
-          {report.photos && report.photos.length > 0 && (
+          {modalPhotos && modalPhotos.length > 0 && (
             <div className="space-y-3">
               <h4 className="text-xs font-semibold text-stone-900 uppercase tracking-wider flex items-center">
                 <Camera className="w-3.5 h-3.5 mr-1.5 text-stone-400" />
-                Store Display Proof Photos ({report.photos.length})
+                Store Display Proof Photos ({modalPhotos.length})
               </h4>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {report.photos.map((photo, pIdx) => (
+                {modalPhotos.map((photo, pIdx) => (
                   <div
                     key={photo.id}
                     onClick={() => setActivePhoto(photo)}

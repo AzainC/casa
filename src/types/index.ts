@@ -24,15 +24,18 @@ export interface ProductItem {
   suggestedRetailPrice?: string;
 }
 
+export type ShelfAvailability = 'Available' | 'Out of Stock' | 'N/A';
+
 export interface ProductInventoryState {
   productId: string;
   productName: string;
   isAvailable: boolean; // Shelf availability: Yes / No
+  availabilityStatus?: ShelfAvailability;
   stockOnHand: number;  // In PCS
   expiryDate: string;   // YYYY-MM-DD
 }
 
-export type OrderNeededStatus = 'Yes' | 'No' | 'Follow-up required';
+export type OrderNeededStatus = 'Yes' | 'No';
 
 export interface OrderItemRequest {
   productId: string;
@@ -94,6 +97,7 @@ export interface VisitReport {
 export type TimePeriodPreset = 
   | 'this-month' 
   | 'today' 
+  | 'yesterday'
   | 'this-week' 
   | 'last-30-days' 
   | 'last-month' 

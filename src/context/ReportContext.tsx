@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import type { VisitReport, StoreLocation, StoreManagerContact } from '../types';
+import type { VisitReport, StoreLocation, StoreManagerContact, ProductItem } from '../types';
 import { INITIAL_MOCK_REPORTS } from '../data/mockReports';
+import { CASA_PONS_PRODUCTS } from '../data/products';
+import { STORES_DATA } from '../data/stores';
+import { buildInitialStoreManagers } from '../data/storeManagersSeed';
 import { 
   getSavedWebhookUrl, 
   saveWebhookUrl, 
@@ -13,8 +16,15 @@ import {
   fetchReportsFromCloud,
   insertReportToCloud,
   deleteReportFromCloud,
+  fetchUnifiedCloudConfig,
   fetchStoreManagersFromCloud,
   upsertStoreManagerInCloud,
+  fetchProductsFromCloud,
+  saveProductsToCloud,
+  fetchStoresFromCloud,
+  saveStoresToCloud,
+  APP_PRODUCTS_CONFIG_KEY,
+  APP_STORES_CONFIG_KEY,
   mapRowToReport
 } from '../services/supabaseClient';
 
@@ -26,8 +36,8 @@ export interface SyncStatus {
 
 interface ReportContextType {
   reports: VisitReport[];
-  activeView: 'merchandiser' | 'manager';
-  setActiveView: (view: 'merchandiser' | 'manager') => void;
+  activeView: 'merchandiser' | 'manager' | 'admin';
+  setActiveView: (view: 'merchandiser' | 'manager' | 'admin') => void;
   isMobileFrame: boolean;
   setIsMobileFrame: (val: boolean) => void;
   activeMerchandiser: { name: string; id: string };
@@ -41,6 +51,19 @@ interface ReportContextType {
   setPendingStoreToLog: (store: StoreLocation | null) => void;
   getStoreManager: (storeId: string) => StoreManagerContact | null;
   saveStoreManager: (storeId: string, contact: StoreManagerContact) => void;
+  storeManagers: Record<string, StoreManagerContact>;
+  // Dynamic Products Catalog
+  products: ProductItem[];
+  updateProduct: (product: ProductItem) => void;
+  addProduct: (product: ProductItem) => void;
+  deleteProduct: (id: string) => void;
+  resetProducts: () => void;
+  // Dynamic Stores / Places Catalog
+  stores: StoreLocation[];
+  addStore: (store: Omit<StoreLocation, 'id' | 'fullLabel'> & { id?: string }) => StoreLocation;
+  updateStore: (store: StoreLocation) => void;
+  deleteStore: (id: string) => void;
+  resetStores: () => void;
   sheetsWebhookUrl: string;
   updateSheetsWebhookUrl: (url: string) => void;
   syncStatus: SyncStatus;
@@ -53,20 +76,33 @@ interface ReportContextType {
 }
 
 const STORAGE_KEY = 'casa_pons_visit_reports_v1';
-const MANAGERS_STORAGE_KEY = 'casa_pons_store_managers_v1';
+const MANAGERS_STORAGE_KEY = 'casa_pons_store_managers_v3';
+const PRODUCTS_STORAGE_KEY = 'casa_pons_custom_products_v1';
+const STORES_STORAGE_KEY = 'casa_pons_custom_stores_v1';
 
-// Seed initial manager directory from historical reports
+// Strips heavy base64 strings so browser localStorage 5MB quota is never exceeded
+function sanitizeReportForStorage(r: VisitReport): VisitReport {
+  return {
+    ...r,
+    photos: (r.photos || []).map((p) => ({
+      ...p,
+      dataUrl: p.dataUrl && p.dataUrl.length > 30000 ? '' : p.dataUrl,
+    })),
+  };
+}
+
+function safeSaveReportsToStorage(list: VisitReport[]) {
+  try {
+    const sanitized = list.map(sanitizeReportForStorage);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+  } catch (e) {
+    console.warn('Failed to save reports to localStorage:', e);
+  }
+}
+
+// Seed initial manager directory (clean empty object - no fake manager pre-seeds)
 function getSeedManagers(): Record<string, StoreManagerContact> {
-  const seed: Record<string, StoreManagerContact> = {};
-  INITIAL_MOCK_REPORTS.forEach((r) => {
-    if (r.managerName && r.managerPhone) {
-      seed[r.store.id] = {
-        name: r.managerName,
-        phone: r.managerPhone,
-      };
-    }
-  });
-  return seed;
+  return buildInitialStoreManagers();
 }
 
 const ReportContext = createContext<ReportContextType | undefined>(undefined);
@@ -88,29 +124,207 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const saved = localStorage.getItem(MANAGERS_STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
       }
     } catch (e) {
       console.error('Failed to load store managers from localStorage', e);
     }
-    return getSeedManagers();
+    return {};
   });
 
-  const [activeView, setActiveView] = useState<'merchandiser' | 'manager'>('merchandiser');
+  // Dynamic Products Catalog
+  const [products, setProducts] = useState<ProductItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(PRODUCTS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load products from localStorage', e);
+    }
+    return CASA_PONS_PRODUCTS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    } catch (e) {
+      console.error('Failed to save products to localStorage', e);
+    }
+  }, [products]);
+
+  const updateProduct = (updated: ProductItem) => {
+    setProducts((prev) => {
+      const next = prev.map((p) => (p.id === updated.id ? updated : p));
+      saveProductsToCloud(next);
+      return next;
+    });
+  };
+
+  const addProduct = (newProd: ProductItem) => {
+    setProducts((prev) => {
+      const next = [...prev, newProd];
+      saveProductsToCloud(next);
+      return next;
+    });
+  };
+
+  const deleteProduct = (id: string) => {
+    setProducts((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      saveProductsToCloud(next);
+      return next;
+    });
+  };
+
+  const resetProducts = () => {
+    setProducts(CASA_PONS_PRODUCTS);
+    localStorage.removeItem(PRODUCTS_STORAGE_KEY);
+    saveProductsToCloud(CASA_PONS_PRODUCTS);
+  };
+
+  // Dynamic Stores / Places Catalog
+  const [stores, setStores] = useState<StoreLocation[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORES_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load stores from localStorage', e);
+    }
+    return STORES_DATA;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(stores));
+    } catch (e) {
+      console.error('Failed to save stores to localStorage', e);
+    }
+  }, [stores]);
+
+  const addStore = (newStoreData: Omit<StoreLocation, 'id' | 'fullLabel'> & { id?: string }): StoreLocation => {
+    const chainSlug = (newStoreData.chain || 'store').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const nameSlug = newStoreData.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+    const id = newStoreData.id || `${chainSlug}-${nameSlug}-${Date.now().toString().slice(-4)}`;
+    const fullLabel = `${newStoreData.chain} - ${newStoreData.name}`;
+
+    const newStore: StoreLocation = {
+      id,
+      name: newStoreData.name.trim(),
+      chain: newStoreData.chain as any,
+      region: newStoreData.region || 'Dubai',
+      fullLabel,
+    };
+
+    setStores((prev) => {
+      const next = [newStore, ...prev];
+      saveStoresToCloud(next);
+      return next;
+    });
+
+    return newStore;
+  };
+
+  const updateStore = (updated: StoreLocation) => {
+    const fullLabel = `${updated.chain} - ${updated.name.trim()}`;
+    const normalized: StoreLocation = {
+      ...updated,
+      name: updated.name.trim(),
+      fullLabel,
+    };
+
+    setStores((prev) => {
+      const next = prev.map((s) => (s.id === normalized.id ? normalized : s));
+      saveStoresToCloud(next);
+      return next;
+    });
+  };
+
+  const deleteStore = (id: string) => {
+    setStores((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      saveStoresToCloud(next);
+      return next;
+    });
+  };
+
+  const resetStores = () => {
+    setStores(STORES_DATA);
+    localStorage.removeItem(STORES_STORAGE_KEY);
+    saveStoresToCloud(STORES_DATA);
+  };
+
+  // Inspect URL for initial view (/admin or #/admin)
+  const getInitialView = (): 'merchandiser' | 'manager' | 'admin' => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (path.startsWith('/admin') || hash.startsWith('#/admin') || hash === '#admin') {
+        return 'admin';
+      }
+    }
+    return 'merchandiser';
+  };
+
+  const [activeView, setActiveViewState] = useState<'merchandiser' | 'manager' | 'admin'>(getInitialView);
+
+  // Sync activeView with browser URL history without reload
+  const setActiveView = useCallback((view: 'merchandiser' | 'manager' | 'admin') => {
+    setActiveViewState(view);
+    if (typeof window !== 'undefined') {
+      if (view === 'admin') {
+        if (!window.location.pathname.startsWith('/admin')) {
+          window.history.pushState({ view: 'admin' }, '', '/admin');
+        }
+      } else {
+        if (window.location.pathname.startsWith('/admin')) {
+          window.history.pushState({ view }, '', '/');
+        }
+      }
+    }
+  }, []);
+
+  // Listen to browser Back/Forward buttons and Hash changes
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (path.startsWith('/admin') || hash.startsWith('#/admin') || hash === '#admin') {
+        setActiveViewState('admin');
+      } else {
+        setActiveViewState((prev) => (prev === 'admin' ? 'merchandiser' : prev));
+      }
+    };
+
+    window.addEventListener('popstate', handleLocationChange);
+    window.addEventListener('hashchange', handleLocationChange);
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.removeEventListener('hashchange', handleLocationChange);
+    };
+  }, []);
+
   const [isMobileFrame, setIsMobileFrame] = useState<boolean>(false);
   const [activeMerchandiser, setActiveMerchandiser] = useState<{ name: string; id: string }>({
-    name: 'Karim Al Zaabi',
+    name: 'Casapons',
     id: 'CP-M12',
   });
   const [selectedReport, setSelectedReport] = useState<VisitReport | null>(null);
   const [pendingStoreToLog, setPendingStoreToLog] = useState<StoreLocation | null>(null);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
-    } catch (e) {
-      console.error('Failed to save reports to localStorage', e);
-    }
+    safeSaveReportsToStorage(reports);
   }, [reports]);
 
   useEffect(() => {
@@ -160,8 +374,12 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     for (const [storeId, contact] of Object.entries(storeManagers)) {
       await upsertStoreManagerInCloud(storeId, contact);
     }
+    // Also push products
+    await saveProductsToCloud(products);
+    // Also push stores / places
+    await saveStoresToCloud(stores);
     return pushed;
-  }, [reports, storeManagers]);
+  }, [reports, storeManagers, products, stores]);
 
   // Connect to Supabase on mount and establish live Realtime subscription
   useEffect(() => {
@@ -175,17 +393,44 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let isMounted = true;
     setIsCloudConnected(true);
 
-    // Initial fetch of live reports
-    fetchReportsFromCloud().then((cloudReports) => {
-      if (isMounted && cloudReports && cloudReports.length > 0) {
-        setReports(cloudReports);
-      }
-    });
+    // Fast initial fetch of recent reports from cloud to load full history
+    fetchReportsFromCloud({ limit: 100 })
+      .then(async (cloudReports) => {
+        if (!isMounted || !cloudReports || cloudReports.length === 0) return;
+        setReports((prev) => {
+          const incomingMap = new Map(cloudReports.map((r) => [r.id, r]));
+          const merged = [...cloudReports];
+          for (const localRep of prev) {
+            if (!incomingMap.has(localRep.id)) {
+              merged.push(localRep);
+            }
+          }
+          merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          safeSaveReportsToStorage(merged);
+          return merged;
+        });
+      });
 
-    // Initial fetch of store managers
-    fetchStoreManagersFromCloud().then((cloudManagers) => {
-      if (isMounted && cloudManagers && Object.keys(cloudManagers).length > 0) {
-        setStoreManagers((prev) => ({ ...prev, ...cloudManagers }));
+    // Unified fetch: loads managers, dynamic products, and dynamic stores in a single roundtrip (66% less egress)
+    fetchUnifiedCloudConfig().then(async (config) => {
+      if (!isMounted || !config) return;
+
+      if (Object.keys(config.managers).length > 0) {
+        setStoreManagers((prev) => ({ ...prev, ...config.managers }));
+      }
+
+      if (config.products && config.products.length > 0) {
+        setProducts(config.products);
+        try {
+          localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(config.products));
+        } catch (e) {}
+      }
+
+      if (config.stores && config.stores.length > 0) {
+        setStores(config.stores);
+        try {
+          localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(config.stores));
+        } catch (e) {}
       }
     });
 
@@ -219,13 +464,45 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         'postgres_changes',
         { event: '*', schema: 'public', table: 'store_managers' },
         (payload) => {
-          const newMgr = payload.new as { store_id?: string; name?: string; phone?: string } | undefined;
-          if (isMounted && newMgr && newMgr.store_id) {
+          const newRow = payload.new as { store_id?: string; name?: string; phone?: string } | undefined;
+          if (isMounted && newRow && newRow.store_id) {
+            // Live cross-device sync of products catalog
+            if (newRow.store_id === APP_PRODUCTS_CONFIG_KEY) {
+              try {
+                const parsedProds = JSON.parse(newRow.phone || '[]');
+                if (Array.isArray(parsedProds) && parsedProds.length > 0) {
+                  setProducts(parsedProds);
+                  try {
+                    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(parsedProds));
+                  } catch (e) {}
+                }
+              } catch (err) {
+                console.error('Failed to parse realtime products:', err);
+              }
+              return;
+            }
+
+            // Live cross-device sync of stores / places catalog
+            if (newRow.store_id === APP_STORES_CONFIG_KEY) {
+              try {
+                const parsedStores = JSON.parse(newRow.phone || '[]');
+                if (Array.isArray(parsedStores) && parsedStores.length > 0) {
+                  setStores(parsedStores);
+                  try {
+                    localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(parsedStores));
+                  } catch (e) {}
+                }
+              } catch (err) {
+                console.error('Failed to parse realtime stores:', err);
+              }
+              return;
+            }
+
             setStoreManagers((prev) => ({
               ...prev,
-              [newMgr.store_id!]: {
-                name: newMgr.name || '',
-                phone: newMgr.phone || '',
+              [newRow.store_id!]: {
+                name: newRow.name || '',
+                phone: newRow.phone || '',
               },
             }));
           }
@@ -291,7 +568,8 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const addReport = (data: Omit<VisitReport, 'id' | 'timestamp' | 'formattedDate' | 'formattedTime' | 'totalStockOnHand' | 'outOfStockCount' | 'expiringSoonCount' | 'hasOrderRequest' | 'status'>): VisitReport => {
     const now = new Date();
     const timestamp = now.toISOString();
-    const formattedDate = now.toISOString().split('T')[0];
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const formattedDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     const formattedTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
     // Save/update manager memory if entered
@@ -312,7 +590,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     data.inventory.forEach(item => {
       totalStockOnHand += Number(item.stockOnHand) || 0;
-      if (!item.isAvailable || (Number(item.stockOnHand) === 0)) {
+      if (item.availabilityStatus !== 'N/A' && (!item.isAvailable || (Number(item.stockOnHand) === 0))) {
         outOfStockCount++;
       }
       if (item.expiryDate) {
@@ -328,8 +606,6 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let status: 'Completed' | 'Pending Review' | 'Urgent Restock' = 'Completed';
     if (outOfStockCount > 1 || (data.orderNeeded === 'Yes' && outOfStockCount > 0)) {
       status = 'Urgent Restock';
-    } else if (data.orderNeeded === 'Follow-up required') {
-      status = 'Pending Review';
     }
 
     const newReport: VisitReport = {
@@ -390,8 +666,13 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setReports(INITIAL_MOCK_REPORTS);
     const seeds = getSeedManagers();
     setStoreManagers(seeds);
+    setProducts(CASA_PONS_PRODUCTS);
+    setStores(STORES_DATA);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(MANAGERS_STORAGE_KEY);
+    localStorage.removeItem(PRODUCTS_STORAGE_KEY);
+    localStorage.removeItem(STORES_STORAGE_KEY);
+    saveStoresToCloud(STORES_DATA);
   };
 
   return (
@@ -413,6 +694,17 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setPendingStoreToLog,
         getStoreManager,
         saveStoreManager,
+        storeManagers,
+        products,
+        updateProduct,
+        addProduct,
+        deleteProduct,
+        resetProducts,
+        stores,
+        addStore,
+        updateStore,
+        deleteStore,
+        resetStores,
         sheetsWebhookUrl,
         updateSheetsWebhookUrl,
         syncStatus,

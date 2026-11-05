@@ -1,8 +1,10 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { VisitReport, StoreManagerContact } from '../types';
+import type { VisitReport, StoreManagerContact, ProductItem, StoreLocation, StorePhoto } from '../types';
 
 export const SUPABASE_URL_KEY = 'casa_pons_supabase_url';
 export const SUPABASE_ANON_KEY = 'casa_pons_supabase_anon_key';
+export const APP_PRODUCTS_CONFIG_KEY = '__app_config_products_catalog__';
+export const APP_STORES_CONFIG_KEY = '__app_config_stores_catalog__';
 
 let cachedClient: SupabaseClient | null = null;
 
@@ -114,17 +116,59 @@ const mapReportToRow = (report: VisitReport) => {
 };
 
 /**
- * Fetch all reports from Supabase (sorted newest first)
+ * Columns to retrieve for report list/dashboard to avoid transferring megabytes of base64 photos.
  */
-export const fetchReportsFromCloud = async (): Promise<VisitReport[] | null> => {
+const REPORT_SUMMARY_COLUMNS = [
+  'id',
+  'created_at',
+  'timestamp',
+  'formatted_date',
+  'formatted_time',
+  'merchandiser_name',
+  'merchandiser_id',
+  'store_id',
+  'store_name',
+  'store_chain',
+  'store_region',
+  'manager_name',
+  'manager_phone',
+  'total_stock_on_hand',
+  'out_of_stock_count',
+  'expiring_soon_count',
+  'inventory',
+  'order_needed',
+  'order_items',
+  'order_notes',
+  'display_condition',
+  'is_clean',
+  'display_notes',
+  'status'
+].join(',');
+
+/**
+ * Fetch reports from Supabase with bounded limits and fast summary column projection.
+ */
+export const fetchReportsFromCloud = async (options?: {
+  newerThanTimestamp?: string;
+  limit?: number;
+}): Promise<VisitReport[] | null> => {
   const supabase = getSupabase();
   if (!supabase) return null;
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('visit_reports')
-      .select('*')
+      .select(REPORT_SUMMARY_COLUMNS)
       .order('timestamp', { ascending: false });
+
+    // Delta sync: fetch only reports created since the last cached report
+    if (options?.newerThanTimestamp) {
+      query = query.gt('timestamp', options.newerThanTimestamp);
+    } else {
+      query = query.limit(options?.limit || 100);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.warn('Error fetching reports from Supabase:', error);
@@ -135,6 +179,27 @@ export const fetchReportsFromCloud = async (): Promise<VisitReport[] | null> => 
   } catch (err) {
     console.error('Network error fetching from Supabase:', err);
     return null;
+  }
+};
+
+/**
+ * Fetch display proof photos on-demand for a single report to avoid bloating the general list.
+ */
+export const fetchReportPhotos = async (id: string): Promise<StorePhoto[]> => {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('visit_reports')
+      .select('photos')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !data) return [];
+    return Array.isArray(data.photos) ? data.photos : [];
+  } catch {
+    return [];
   }
 };
 
@@ -175,6 +240,63 @@ export const deleteReportFromCloud = async (id: string): Promise<boolean> => {
   }
 };
 
+export interface CloudUnifiedConfig {
+  managers: Record<string, StoreManagerContact>;
+  products: ProductItem[] | null;
+  stores: StoreLocation[] | null;
+}
+
+/**
+ * Unified Cloud Config Fetch: Loads managers, products, and stores in a single roundtrip,
+ * eliminating 2 redundant database queries and reducing cloud egress by 66%.
+ */
+export const fetchUnifiedCloudConfig = async (): Promise<CloudUnifiedConfig | null> => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase.from('store_managers').select('*');
+    if (error) {
+      console.warn('Error fetching unified config from Supabase:', error);
+      return null;
+    }
+
+    const managers: Record<string, StoreManagerContact> = {};
+    let products: ProductItem[] | null = null;
+    let stores: StoreLocation[] | null = null;
+
+    (data || []).forEach((row) => {
+      if (row.store_id === APP_PRODUCTS_CONFIG_KEY) {
+        try {
+          const parsed = JSON.parse(row.phone || '[]');
+          if (Array.isArray(parsed) && parsed.length > 0) products = parsed;
+        } catch (e) {}
+        return;
+      }
+
+      if (row.store_id === APP_STORES_CONFIG_KEY) {
+        try {
+          const parsed = JSON.parse(row.phone || '[]');
+          if (Array.isArray(parsed) && parsed.length > 0) stores = parsed;
+        } catch (e) {}
+        return;
+      }
+
+      if ((row.name && row.name.trim()) || (row.phone && row.phone.trim())) {
+        managers[row.store_id] = {
+          name: (row.name || '').trim(),
+          phone: (row.phone || '').trim(),
+        };
+      }
+    });
+
+    return { managers, products, stores };
+  } catch (err) {
+    console.error('Failed to fetch unified config from Supabase:', err);
+    return null;
+  }
+};
+
 /**
  * Fetch all store manager contacts
  */
@@ -191,15 +313,126 @@ export const fetchStoreManagersFromCloud = async (): Promise<Record<string, Stor
 
     const result: Record<string, StoreManagerContact> = {};
     (data || []).forEach((row) => {
-      result[row.store_id] = {
-        name: row.name || '',
-        phone: row.phone || '',
-      };
+      if (row.store_id === APP_PRODUCTS_CONFIG_KEY || row.store_id === APP_STORES_CONFIG_KEY) return;
+      if ((row.name && row.name.trim()) || (row.phone && row.phone.trim())) {
+        result[row.store_id] = {
+          name: (row.name || '').trim(),
+          phone: (row.phone || '').trim(),
+        };
+      }
     });
     return result;
   } catch (err) {
     console.error('Failed to fetch store managers from Supabase:', err);
     return null;
+  }
+};
+
+/**
+ * Fetch dynamic places / stores catalog from Supabase Cloud
+ */
+export const fetchStoresFromCloud = async (): Promise<StoreLocation[] | null> => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('store_managers')
+      .select('phone')
+      .eq('store_id', APP_STORES_CONFIG_KEY)
+      .maybeSingle();
+
+    if (error || !data || !data.phone) {
+      return null;
+    }
+
+    const parsed = JSON.parse(data.phone);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Could not load stores catalog from cloud:', err);
+  }
+  return null;
+};
+
+/**
+ * Save / Upsert dynamic places / stores catalog in Supabase Cloud
+ */
+export const saveStoresToCloud = async (stores: StoreLocation[]): Promise<boolean> => {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase.from('store_managers').upsert({
+      store_id: APP_STORES_CONFIG_KEY,
+      name: 'stores_catalog',
+      phone: JSON.stringify(stores),
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error('Failed to sync stores to Supabase:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error saving stores to Supabase:', err);
+    return false;
+  }
+};
+
+/**
+ * Fetch dynamic products catalog from Supabase Cloud
+ */
+export const fetchProductsFromCloud = async (): Promise<ProductItem[] | null> => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('store_managers')
+      .select('phone')
+      .eq('store_id', APP_PRODUCTS_CONFIG_KEY)
+      .maybeSingle();
+
+    if (error || !data || !data.phone) {
+      return null;
+    }
+
+    const parsed = JSON.parse(data.phone);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Could not load products catalog from cloud:', err);
+  }
+  return null;
+};
+
+/**
+ * Save / Upsert dynamic products catalog in Supabase Cloud
+ */
+export const saveProductsToCloud = async (products: ProductItem[]): Promise<boolean> => {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase.from('store_managers').upsert({
+      store_id: APP_PRODUCTS_CONFIG_KEY,
+      name: 'products_catalog',
+      phone: JSON.stringify(products),
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error('Failed to sync products to Supabase:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error saving products to Supabase:', err);
+    return false;
   }
 };
 

@@ -52,7 +52,7 @@ export const StoreManagerInput: React.FC<StoreManagerInputProps> = ({
             type="text"
             value={managerName}
             onChange={(e) => onNameChange(e.target.value)}
-            placeholder="e.g. Mohammad Rashid"
+            placeholder="e.g. Store In-Charge"
             className="w-full px-3 py-2 text-xs bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-stone-400 text-stone-900 placeholder:text-stone-400 font-medium transition"
           />
         </div>
@@ -74,7 +74,7 @@ export const StoreManagerInput: React.FC<StoreManagerInputProps> = ({
             type="tel"
             value={managerPhone}
             onChange={(e) => onPhoneChange(e.target.value)}
-            placeholder="e.g. +971 50 123 4567"
+            placeholder="e.g. 526902145"
             className="w-full px-3 py-2 text-xs font-mono bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-stone-400 text-stone-900 placeholder:text-stone-400 transition"
           />
         </div>

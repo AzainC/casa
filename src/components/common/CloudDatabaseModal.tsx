@@ -115,7 +115,7 @@ export const CloudDatabaseModal: React.FC<CloudDatabaseModalProps> = ({ isOpen, 
         className="w-full max-w-xl bg-white rounded-3xl overflow-hidden shadow-2xl border border-black/[0.08] flex flex-col max-h-[90vh]"
       >
         {/* Header */}
-        <div className="p-4 sm:p-5 bg-[#FAF7F2] border-b border-black/[0.06] flex items-center justify-between">
+        <div className="p-4 sm:p-5 bg-[#F5F5F7] border-b border-black/[0.06] flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-2xs">
               <Database className="w-5 h-5" />
@@ -387,7 +387,7 @@ export const CloudDatabaseModal: React.FC<CloudDatabaseModalProps> = ({ isOpen, 
               <div className="flex justify-end pt-2">
                 <button
                   onClick={() => setActiveTab('connect')}
-                  className="px-4 py-2 bg-[#1D100A] text-white rounded-xl font-medium text-xs hover:bg-[#2A1810] transition inline-flex items-center space-x-1.5"
+                  className="px-4 py-2 bg-stone-900 text-white rounded-xl font-medium text-xs hover:bg-stone-800 transition inline-flex items-center space-x-1.5"
                 >
                   <span>Ready: Enter Credentials in Tab 1</span>
                   <ArrowRight className="w-3.5 h-3.5" />
