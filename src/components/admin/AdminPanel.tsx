@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useReports } from '../../context/ReportContext';
 import type { ProductItem, StoreLocation, ChainType } from '../../types';
 import { REGIONS } from '../../data/stores';
+import { isProductAvailableForChain } from '../../data/products';
 import { compressImageFile } from '../../utils/imageCompressor';
 import {
   ORDER_NOTIFICATION_EMAIL,
@@ -42,7 +43,8 @@ import {
   Store,
   ShoppingCart,
   Tag,
-  Palette
+  Palette,
+  Layers
 } from 'lucide-react';
 import {
   AVAILABLE_CHAIN_COLORS,
@@ -57,6 +59,8 @@ export const AdminPanel: React.FC = () => {
     products,
     updateProduct,
     addProduct,
+    addProducts,
+    deleteProduct,
     resetProducts,
     stores,
     addStore,
@@ -88,8 +92,16 @@ export const AdminPanel: React.FC = () => {
   // 1. PRODUCTS MANAGEMENT STATE
   // =========================================================================
   const [productSearch, setProductSearch] = useState('');
+  const [prodChainFilter, setProdChainFilter] = useState<'All' | string>('All');
   const [editingProduct, setEditingProduct] = useState<ProductItem | null>(null);
   const [isNewProductModal, setIsNewProductModal] = useState(false);
+  const [isBulkProductModal, setIsBulkProductModal] = useState(false);
+  const [bulkTargetChain, setBulkTargetChain] = useState<string>('Grandiose');
+  const [bulkInputText, setBulkInputText] = useState('');
+  const [bulkDefaultWeight, setBulkDefaultWeight] = useState('Pouch 120g');
+  const [bulkDefaultPrice, setBulkDefaultPrice] = useState('AED 24.00');
+  const [bulkDefaultFlavor, setBulkDefaultFlavor] = useState('Artisan Confectionery');
+  const [deleteTargetProduct, setDeleteTargetProduct] = useState<ProductItem | null>(null);
   const [prodFormName, setProdFormName] = useState('');
   const [prodFormWeight, setProdFormWeight] = useState('');
   const [prodFormFlavor, setProdFormFlavor] = useState('');
@@ -97,19 +109,25 @@ export const AdminPanel: React.FC = () => {
   const [prodFormPrice, setProdFormPrice] = useState('');
   const [prodFormDescription, setProdFormDescription] = useState('');
   const [prodFormImageUrl, setProdFormImageUrl] = useState('');
+  const [prodFormChains, setProdFormChains] = useState<string[]>(['Choithrams', 'Emarat']);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredProducts = useMemo(() => {
     const q = productSearch.toLowerCase().trim();
-    if (!q) return products;
-    return products.filter((p) =>
-      p.name.toLowerCase().includes(q) ||
-      p.flavorProfile.toLowerCase().includes(q) ||
-      p.barcode.includes(q) ||
-      (p.weightCategory && p.weightCategory.toLowerCase().includes(q))
-    );
-  }, [products, productSearch]);
+    return products.filter((p) => {
+      if (prodChainFilter !== 'All') {
+        if (!isProductAvailableForChain(p, prodChainFilter)) return false;
+      }
+      if (!q) return true;
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.flavorProfile.toLowerCase().includes(q) ||
+        p.barcode.includes(q) ||
+        (p.weightCategory && p.weightCategory.toLowerCase().includes(q))
+      );
+    });
+  }, [products, productSearch, prodChainFilter]);
 
   const handleOpenEditProduct = (prod: ProductItem) => {
     setEditingProduct(prod);
@@ -121,6 +139,7 @@ export const AdminPanel: React.FC = () => {
     setProdFormPrice(prod.suggestedRetailPrice || '');
     setProdFormDescription(prod.description || '');
     setProdFormImageUrl(prod.imageUrl || '');
+    setProdFormChains(prod.chains && prod.chains.length > 0 ? prod.chains : ['Choithrams', 'Emarat']);
   };
 
   const handleOpenAddProduct = () => {
@@ -133,6 +152,7 @@ export const AdminPanel: React.FC = () => {
     setProdFormPrice('AED 18.00');
     setProdFormDescription('Premium Casa Pons artisan confectionery.');
     setProdFormImageUrl('');
+    setProdFormChains(prodChainFilter !== 'All' ? [prodChainFilter] : ['Choithrams', 'Emarat']);
   };
 
   const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,6 +174,8 @@ export const AdminPanel: React.FC = () => {
     e.preventDefault();
     if (!prodFormName.trim()) return;
 
+    const assignedChains = prodFormChains.length > 0 ? prodFormChains : ['Choithrams', 'Emarat'];
+
     if (isNewProductModal) {
       const newSku: ProductItem = {
         id: `prod-${Date.now().toString().slice(-6)}`,
@@ -164,6 +186,7 @@ export const AdminPanel: React.FC = () => {
         suggestedRetailPrice: prodFormPrice.trim(),
         description: prodFormDescription.trim(),
         imageUrl: prodFormImageUrl || 'https://images.unsplash.com/photo-1548848221-0c2e497ed557?w=300&q=80',
+        chains: assignedChains,
       };
       addProduct(newSku);
       showToast(`Added new product: ${newSku.name}`);
@@ -177,13 +200,117 @@ export const AdminPanel: React.FC = () => {
         suggestedRetailPrice: prodFormPrice.trim(),
         description: prodFormDescription.trim(),
         imageUrl: prodFormImageUrl || editingProduct.imageUrl,
+        chains: assignedChains,
       };
       updateProduct(updated);
-      showToast(`Updated "${updated.name}". All reports and Excel exports now follow this name.`);
+      showToast(`Updated "${updated.name}". Assortment settings saved.`);
     }
 
     setEditingProduct(null);
     setIsNewProductModal(false);
+  };
+
+  const handleSaveAndAddAnother = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prodFormName.trim()) return;
+
+    const assignedChains = prodFormChains.length > 0 ? prodFormChains : (prodChainFilter !== 'All' ? [prodChainFilter] : ['Grandiose']);
+    const newSku: ProductItem = {
+      id: `prod-${Date.now().toString().slice(-6)}`,
+      name: prodFormName.trim(),
+      weightCategory: prodFormWeight.trim() || 'Pouch 120g',
+      flavorProfile: prodFormFlavor.trim() || 'Artisan Confectionery',
+      barcode: prodFormBarcode.trim() || ('62911' + Math.floor(10000000 + Math.random() * 90000000)),
+      suggestedRetailPrice: prodFormPrice.trim() || 'AED 24.00',
+      description: prodFormDescription.trim() || 'Premium Casa Pons artisan confectionery.',
+      imageUrl: prodFormImageUrl || 'https://images.unsplash.com/photo-1548848221-0c2e497ed557?w=300&q=80',
+      chains: assignedChains,
+    };
+    addProduct(newSku);
+    showToast(`Added "${newSku.name}". Ready for next SKU!`);
+
+    // Reset input fields for the next SKU while preserving selected chains
+    setProdFormName('');
+    setProdFormBarcode('62911' + Math.floor(10000000 + Math.random() * 90000000));
+    setProdFormImageUrl('');
+  };
+
+  // Bulk Product Parser & Template Helpers
+  const parsedBulkProducts = useMemo(() => {
+    if (!bulkInputText.trim()) return [];
+    const lines = bulkInputText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith('//') && !l.startsWith('#'));
+
+    const imagePlaceholders = [
+      'https://images.unsplash.com/photo-1548848221-0c2e497ed557?w=300&q=80',
+      'https://images.unsplash.com/photo-1582293041079-7814c2f12063?w=300&q=80',
+      'https://images.unsplash.com/photo-1575372587186-500b3e6c0c29?w=300&q=80',
+      'https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?w=300&q=80',
+      'https://images.unsplash.com/photo-1587132137056-bfbf0166836e?w=300&q=80',
+    ];
+
+    return lines.map((line, idx) => {
+      const parts = line.split(/[,;]/).map((p) => p.trim()).filter(Boolean);
+      const name = parts[0] || `Artisan SKU ${idx + 1}`;
+      let weight = bulkDefaultWeight.trim() || 'Pouch 120g';
+      let price = bulkDefaultPrice.trim() || 'AED 24.00';
+      let flavor = bulkDefaultFlavor.trim() || 'Artisan Confectionery';
+
+      if (parts.length > 1) {
+        for (let i = 1; i < parts.length; i++) {
+          const part = parts[i];
+          if (/\d+\s*(g|kg|oz|ml|pcs|pack|box|pouch)/i.test(part)) {
+            weight = part;
+          } else if (/aed|\$|€|£/i.test(part) || /^\d+(\.\d+)?$/.test(part)) {
+            price = part.toUpperCase().includes('AED') ? part : `AED ${part}`;
+          } else {
+            flavor = part;
+          }
+        }
+      }
+
+      const assignedChains = bulkTargetChain === 'All'
+        ? chains.map((c) => c.name)
+        : [bulkTargetChain];
+
+      const barcode = '62911' + String(Date.now() + idx).slice(-8);
+
+      return {
+        id: `prod-${Date.now().toString().slice(-6)}-${idx + 1}`,
+        name,
+        weightCategory: weight,
+        flavorProfile: flavor,
+        barcode,
+        suggestedRetailPrice: price,
+        description: `Premium Casa Pons ${name} exclusive for ${bulkTargetChain === 'All' ? 'all supermarket chains' : bulkTargetChain}.`,
+        imageUrl: imagePlaceholders[idx % imagePlaceholders.length],
+        chains: assignedChains,
+      } as ProductItem;
+    });
+  }, [bulkInputText, bulkTargetChain, bulkDefaultWeight, bulkDefaultPrice, bulkDefaultFlavor, chains]);
+
+  const loadGrandioseSampleTemplate = () => {
+    setBulkTargetChain('Grandiose');
+    setBulkInputText([
+      'Pistachio Truffle Balls, 140g, AED 28.00',
+      'Dark Chocolate Hazelnut Crunch, 160g, AED 32.00',
+      'Salted Caramel Almonds, 120g, AED 22.00',
+      'Ruby Berry Artisan Pralines, 110g, AED 29.50',
+      'Cashew Caramel Clusters, 150g, AED 24.00',
+      'White Chocolate Matcha Crisps, 130g, AED 26.00',
+      'Espresso Dark Truffle Bites, 100g, AED 21.00',
+      'Golden Toffee Pecan Crunch, 140g, AED 27.50'
+    ].join('\n'));
+  };
+
+  const handleImportBulkProducts = () => {
+    if (parsedBulkProducts.length === 0) return;
+    addProducts(parsedBulkProducts);
+    showToast(`Successfully added ${parsedBulkProducts.length} new SKUs for ${bulkTargetChain === 'All' ? 'all chains' : bulkTargetChain}!`);
+    setIsBulkProductModal(false);
+    setBulkInputText('');
   };
 
   // =========================================================================
@@ -588,24 +715,77 @@ export const AdminPanel: React.FC = () => {
               />
             </div>
 
-            <div className="flex items-center space-x-2 self-start sm:self-auto">
+            <div className="flex items-center space-x-2 self-start sm:self-auto flex-wrap gap-y-2">
               <button
                 onClick={handleOpenAddProduct}
                 className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold shadow-2xs transition active:scale-95"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Add New SKU</span>
+                <span>Add SKU</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsBulkProductModal(true);
+                  setBulkTargetChain(prodChainFilter !== 'All' ? prodChainFilter : 'Grandiose');
+                }}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200/80 text-xs font-semibold shadow-2xs transition active:scale-95"
+                title="Bulk add multiple products at once"
+              >
+                <Layers className="w-3.5 h-3.5 text-purple-600" />
+                <span>Bulk Add SKUs</span>
               </button>
 
               <button
                 onClick={resetProducts}
-                title="Reset catalog to official 5 Casa Pons items"
+                title="Reset catalog to default assortments"
                 className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200/80 text-stone-600 text-xs font-medium border border-black/[0.04] transition"
               >
                 <RotateCcw className="w-3.5 h-3.5 text-stone-400" />
                 <span className="hidden sm:inline">Reset Defaults</span>
               </button>
             </div>
+          </div>
+
+          {/* Supermarket Chain Assortment Filter Bar */}
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+            <button
+              type="button"
+              onClick={() => setProdChainFilter('All')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                prodChainFilter === 'All'
+                  ? 'bg-stone-900 text-white shadow-2xs'
+                  : 'bg-white text-stone-600 hover:text-stone-900 border border-black/[0.06] hover:bg-stone-50'
+              }`}
+            >
+              <span>All Assortments</span>
+              <span className="ml-1 text-[10px] opacity-75">({products.length})</span>
+            </button>
+
+            {chains.map((chain) => {
+              const chainStyle = getChainStyle(chain.name, chains);
+              const isSelected = prodChainFilter === chain.name;
+              const count = products.filter((p) => isProductAvailableForChain(p, chain.name)).length;
+
+              return (
+                <button
+                  key={chain.id}
+                  type="button"
+                  onClick={() => setProdChainFilter(chain.name)}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition flex items-center space-x-1.5 ${
+                    isSelected
+                      ? `${chainStyle.solidClass} shadow-2xs`
+                      : 'bg-white text-stone-700 hover:bg-stone-50 border border-black/[0.06]'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${chainStyle.previewBg}`} />
+                  <span>{chain.name}</span>
+                  <span className={`text-[10px] px-1 py-0.2 rounded-full ${isSelected ? 'bg-white/20' : 'bg-stone-100 text-stone-500'}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Product Cards Grid */}
@@ -643,10 +823,27 @@ export const AdminPanel: React.FC = () => {
                         {prod.name}
                       </h3>
                       <p className="text-xs text-stone-500 truncate mt-0.5">{prod.flavorProfile}</p>
-                      <div className="mt-1 flex items-center space-x-2">
-                        <span className="text-xs font-bold text-stone-900">
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                        <span className="text-xs font-bold text-stone-900 mr-1.5">
                           {prod.suggestedRetailPrice}
                         </span>
+                        {(!prod.chains || prod.chains.length === 0 || prod.chains.includes('All')) ? (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded border bg-stone-100 text-stone-700 border-stone-200">
+                            All Chains
+                          </span>
+                        ) : (
+                          prod.chains.map((cName) => {
+                            const cStyle = getChainStyle(cName, chains);
+                            return (
+                              <span
+                                key={cName}
+                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${cStyle.pillClass}`}
+                              >
+                                {cName}
+                              </span>
+                            );
+                          })
+                        )}
                       </div>
                     </div>
                   </div>
@@ -660,13 +857,22 @@ export const AdminPanel: React.FC = () => {
                   <span className="text-[10px] font-mono text-stone-400">
                     ID: {prod.id}
                   </span>
-                  <button
-                    onClick={() => handleOpenEditProduct(prod)}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200/80 text-stone-800 text-xs font-medium transition active:scale-95 border border-black/[0.04]"
-                  >
-                    <Edit3 className="w-3 h-3 text-stone-500" />
-                    <span>Edit SKU &amp; Photo</span>
-                  </button>
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      onClick={() => setDeleteTargetProduct(prod)}
+                      className="p-1.5 rounded-xl hover:bg-rose-50 text-stone-400 hover:text-rose-600 transition"
+                      title="Delete SKU"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleOpenEditProduct(prod)}
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200/80 text-stone-800 text-xs font-medium transition active:scale-95 border border-black/[0.04]"
+                    >
+                      <Edit3 className="w-3 h-3 text-stone-500" />
+                      <span>Edit SKU &amp; Photo</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1894,6 +2100,58 @@ export const AdminPanel: React.FC = () => {
                 </div>
               </div>
 
+              {/* Authorized Supermarket Chains */}
+              <div>
+                <label className="block font-semibold text-stone-700 mb-1">
+                  Supermarket Chain Assortment *
+                </label>
+                <p className="text-[11px] text-stone-500 mb-2">
+                  Select which supermarket chains carry this SKU. When a merchandiser selects a branch, only its assigned products will appear.
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-stone-50 rounded-xl border border-black/[0.06]">
+                  {chains.map((c) => {
+                    const cStyle = getChainStyle(c.name, chains);
+                    const isChecked = prodFormChains.includes(c.name);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          if (isChecked) {
+                            setProdFormChains(prodFormChains.filter((name) => name !== c.name));
+                          } else {
+                            setProdFormChains([...prodFormChains, c.name]);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center space-x-1.5 transition ${
+                          isChecked
+                            ? `${cStyle.solidClass} shadow-2xs ring-2 ring-stone-900 ring-offset-1`
+                            : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${cStyle.previewBg}`} />
+                        <span>{c.name}</span>
+                        {isChecked && <Check className="w-3 h-3 ml-0.5" />}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (prodFormChains.length === chains.length) {
+                        setProdFormChains([]);
+                      } else {
+                        setProdFormChains(chains.map((c) => c.name));
+                      }
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-stone-500 hover:text-stone-900 bg-stone-200/60 hover:bg-stone-200 transition"
+                  >
+                    {prodFormChains.length === chains.length ? 'Deselect All' : 'Select All Chains'}
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block font-semibold text-stone-700 mb-1">
                   Description / Merchandiser Facing Notes
@@ -1907,25 +2165,260 @@ export const AdminPanel: React.FC = () => {
                 />
               </div>
 
-              <div className="pt-2 flex items-center justify-end space-x-2">
+              <div className="pt-2 flex items-center justify-end space-x-2 flex-wrap gap-y-2">
                 <button
                   type="button"
                   onClick={() => {
                     setEditingProduct(null);
                     setIsNewProductModal(false);
                   }}
-                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium transition"
+                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium transition text-xs"
                 >
                   Cancel
                 </button>
+                {isNewProductModal && (
+                  <button
+                    type="button"
+                    onClick={handleSaveAndAddAnother}
+                    className="px-4 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 font-semibold text-xs shadow-2xs transition active:scale-95 flex items-center space-x-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Save &amp; Add Another</span>
+                  </button>
+                )}
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-semibold shadow-2xs transition active:scale-95"
+                  className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-semibold shadow-2xs transition active:scale-95 text-xs"
                 >
                   Save &amp; Sync Across Devices
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* BULK ADD SKUs MODAL                                                       */}
+      {/* ========================================================================= */}
+      {isBulkProductModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 shadow-2xl border border-black/[0.08] space-y-4 animate-in fade-in zoom-in-95 my-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-black/[0.06]">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">Bulk Add Products &amp; SKUs</h3>
+                  <p className="text-[11px] text-stone-500">
+                    Add multiple products for Grandiose or any supermarket chain in seconds.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkProductModal(false)}
+                className="w-7 h-7 rounded-xl hover:bg-stone-100 flex items-center justify-center text-stone-400 hover:text-stone-700 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Target Chain Selector */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-stone-700">
+                Target Supermarket Chain Assortment
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {chains.map((c) => {
+                  const cStyle = getChainStyle(c.name, chains);
+                  const isSelected = bulkTargetChain === c.name;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setBulkTargetChain(c.name)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition ${
+                        isSelected
+                          ? `${cStyle.solidClass} shadow-2xs ring-2 ring-stone-900 ring-offset-1`
+                          : 'bg-stone-50 text-stone-700 border border-black/[0.06] hover:bg-stone-100'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${cStyle.previewBg}`} />
+                      <span>{c.name}</span>
+                      {isSelected && <Check className="w-3 h-3 ml-0.5" />}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => setBulkTargetChain('All')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                    bulkTargetChain === 'All'
+                      ? 'bg-stone-900 text-white shadow-2xs'
+                      : 'bg-stone-50 text-stone-700 border border-black/[0.06] hover:bg-stone-100'
+                  }`}
+                >
+                  All Supermarket Chains
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Prefill / Template action */}
+            <div className="bg-purple-50/70 border border-purple-100 rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
+                <span className="text-xs text-purple-950 font-medium">
+                  Need a fast gourmet confectionery lineup for Grandiose?
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={loadGrandioseSampleTemplate}
+                className="px-2.5 py-1 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-semibold transition shrink-0 active:scale-95 shadow-2xs"
+              >
+                Insert 8 Grandiose SKUs
+              </button>
+            </div>
+
+            {/* Line-by-line input textarea */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-stone-700">
+                  Products List (One SKU per line)
+                </label>
+                <span className="text-[10px] text-stone-400 font-mono">
+                  Format: Name, Weight, Price
+                </span>
+              </div>
+              <textarea
+                rows={6}
+                value={bulkInputText}
+                onChange={(e) => setBulkInputText(e.target.value)}
+                placeholder="Pistachio Truffle Balls, 140g, AED 28.00&#10;Dark Chocolate Hazelnut Crunch, 160g, AED 32.00&#10;Salted Caramel Almonds, 120g, AED 22.00&#10;Ruby Berry Pralines&#10;Cashew Caramel Clusters, 150g"
+                className="w-full px-3 py-2.5 bg-stone-50/80 border border-black/[0.08] rounded-2xl text-xs font-mono text-stone-900 focus:bg-white focus:outline-none focus:border-stone-900/40 transition placeholder:text-stone-400 leading-relaxed"
+              />
+            </div>
+
+            {/* Defaults for weight and price */}
+            <div className="grid grid-cols-2 gap-2.5 text-xs">
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+                  Default Weight / Pack
+                </label>
+                <input
+                  type="text"
+                  value={bulkDefaultWeight}
+                  onChange={(e) => setBulkDefaultWeight(e.target.value)}
+                  placeholder="Pouch 120g"
+                  className="w-full px-3 py-1.5 bg-stone-50 border border-black/[0.08] rounded-xl text-xs text-stone-900 focus:outline-none focus:border-stone-900/40"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+                  Default Retail Price
+                </label>
+                <input
+                  type="text"
+                  value={bulkDefaultPrice}
+                  onChange={(e) => setBulkDefaultPrice(e.target.value)}
+                  placeholder="AED 24.00"
+                  className="w-full px-3 py-1.5 bg-stone-50 border border-black/[0.08] rounded-xl text-xs text-stone-900 focus:outline-none focus:border-stone-900/40"
+                />
+              </div>
+            </div>
+
+            {/* Parsed Live Preview */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-xs font-semibold">
+                <span className="text-stone-700">
+                  Parsed SKUs ({parsedBulkProducts.length})
+                </span>
+                <span className="text-emerald-700 text-[11px] font-medium">
+                  {parsedBulkProducts.length > 0
+                    ? `Ready for ${bulkTargetChain === 'All' ? 'All Chains' : bulkTargetChain}`
+                    : 'Awaiting items...'}
+                </span>
+              </div>
+              <div className="max-h-36 overflow-y-auto border border-black/[0.06] rounded-xl p-2 bg-stone-50/50 space-y-1">
+                {parsedBulkProducts.length === 0 ? (
+                  <div className="text-center py-4 text-xs text-stone-400">
+                    Type or paste product names above to preview.
+                  </div>
+                ) : (
+                  parsedBulkProducts.map((p, i) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between text-xs bg-white p-1.5 px-2.5 rounded-lg border border-black/[0.04]"
+                    >
+                      <div className="flex items-center space-x-2 truncate">
+                        <span className="w-4 h-4 rounded-full bg-stone-100 text-stone-600 text-[10px] flex items-center justify-center font-bold font-mono shrink-0">
+                          {i + 1}
+                        </span>
+                        <span className="font-semibold text-stone-900 truncate">{p.name}</span>
+                        <span className="text-[11px] text-stone-500 font-mono">({p.weightCategory})</span>
+                      </div>
+                      <span className="text-xs font-mono font-bold text-stone-800 shrink-0 ml-2">
+                        {p.suggestedRetailPrice}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-2 flex items-center justify-end space-x-2 border-t border-black/[0.06]">
+              <button
+                type="button"
+                onClick={() => setIsBulkProductModal(false)}
+                className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium text-xs transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleImportBulkProducts}
+                disabled={parsedBulkProducts.length === 0}
+                className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 disabled:opacity-40 disabled:pointer-events-none text-white font-semibold text-xs shadow-2xs transition active:scale-95 flex items-center space-x-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>
+                  Import {parsedBulkProducts.length} Products to {bulkTargetChain === 'All' ? 'All Chains' : bulkTargetChain}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete SKU Confirmation Modal */}
+      {deleteTargetProduct && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-black/[0.08] space-y-3">
+            <h3 className="text-sm font-bold text-stone-900">Delete Product SKU?</h3>
+            <p className="text-xs text-stone-600">
+              Are you sure you want to remove <strong>{deleteTargetProduct.name}</strong> from the catalog? This change will sync across all devices.
+            </p>
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setDeleteTargetProduct(null)}
+                className="px-3 py-1.5 rounded-xl text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  deleteProduct(deleteTargetProduct.id);
+                  showToast(`Deleted "${deleteTargetProduct.name}"`);
+                  setDeleteTargetProduct(null);
+                }}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition active:scale-95"
+              >
+                Delete SKU
+              </button>
+            </div>
           </div>
         </div>
       )}

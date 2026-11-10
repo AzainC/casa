@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useReports } from '../../context/ReportContext';
 import type {
   StoreLocation,
+  ProductItem,
   ProductInventoryState,
   OrderNeededStatus,
   OrderItemRequest,
@@ -15,6 +16,7 @@ import { StoreManagerInput } from './StoreManagerInput';
 import { InventorySection } from './InventorySection';
 import { OrderSection } from './OrderSection';
 import { DisplaySection } from './DisplaySection';
+import { getChainStyle } from '../../utils/chainStyles';
 import confetti from 'canvas-confetti';
 import {
   Send,
@@ -43,24 +45,9 @@ export const VisitReportForm: React.FC = () => {
     getStoreManager,
     sheetsWebhookUrl,
     products,
+    getProductsForChain,
+    chains,
   } = useReports();
-
-  // Initial inventory with sensible defaults
-  const createDefaultInventory = (): ProductInventoryState[] => {
-    const today = new Date();
-    const futureDate = new Date();
-    futureDate.setMonth(today.getMonth() + 6);
-    const dateStr = futureDate.toISOString().split('T')[0];
-
-    return products.map((prod) => ({
-      productId: prod.id,
-      productName: prod.name,
-      isAvailable: true,
-      availabilityStatus: 'Available',
-      stockOnHand: 12,
-      expiryDate: dateStr,
-    }));
-  };
 
   // State
   const [selectedStore, setSelectedStore] = useState<StoreLocation | null>(null);
@@ -68,7 +55,37 @@ export const VisitReportForm: React.FC = () => {
   const [managerPhone, setManagerPhone] = useState('');
   const [isManagerAutoFilled, setIsManagerAutoFilled] = useState(false);
 
-  const [inventory, setInventory] = useState<ProductInventoryState[]>(createDefaultInventory);
+  // Determine active product assortment based on selected branch's chain
+  const activeProducts = useMemo(() => {
+    if (!selectedStore) {
+      // Default to Choithrams/Emarat lineup before selection
+      return getProductsForChain('Choithrams');
+    }
+    return getProductsForChain(selectedStore.chain);
+  }, [selectedStore, getProductsForChain]);
+
+  // Initial inventory with sensible defaults
+  const createDefaultInventory = (prods?: ProductItem[]): ProductInventoryState[] => {
+    const targetProds = prods && prods.length > 0 ? prods : activeProducts;
+    const today = new Date();
+    const futureDate = new Date();
+    futureDate.setMonth(today.getMonth() + 6);
+    const dateStr = futureDate.toISOString().split('T')[0];
+
+    return targetProds.map((prod) => ({
+      productId: prod.id,
+      productName: prod.name,
+      weight: prod.weightCategory,
+      isAvailable: true,
+      availabilityStatus: 'Available',
+      stockOnHand: 12,
+      expiryDate: dateStr,
+    }));
+  };
+
+  const [inventory, setInventory] = useState<ProductInventoryState[]>(() =>
+    createDefaultInventory(getProductsForChain('Choithrams'))
+  );
   const [orderNeeded, setOrderNeeded] = useState<OrderNeededStatus>('No');
   const [orderItems, setOrderItems] = useState<OrderItemRequest[]>([]);
   const [orderNotes, setOrderNotes] = useState('');
@@ -82,6 +99,45 @@ export const VisitReportForm: React.FC = () => {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [submittedReport, setSubmittedReport] = useState<VisitReport | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync inventory & orderItems whenever activeProducts changes (e.g. user selects Grandiose or Choithrams/Emarat)
+  useEffect(() => {
+    if (!activeProducts || activeProducts.length === 0) return;
+
+    setInventory((prev) => {
+      const today = new Date();
+      const futureDate = new Date();
+      futureDate.setMonth(today.getMonth() + 6);
+      const dateStr = futureDate.toISOString().split('T')[0];
+
+      const prevIds = prev.map((item) => item.productId).join(',');
+      const activeIds = activeProducts.map((p) => p.id).join(',');
+      if (prevIds === activeIds && prev.length > 0) {
+        return prev;
+      }
+
+      const prevMap = new Map(prev.map((item) => [item.productId, item]));
+      return activeProducts.map((prod) => {
+        const existing = prevMap.get(prod.id);
+        if (existing) return existing;
+        return {
+          productId: prod.id,
+          productName: prod.name,
+          weight: prod.weightCategory,
+          isAvailable: true,
+          availabilityStatus: 'Available' as const,
+          stockOnHand: 12,
+          expiryDate: dateStr,
+        };
+      });
+    });
+
+    setOrderItems((prev) => {
+      if (prev.length === 0) return prev;
+      const activeIdSet = new Set(activeProducts.map((p) => p.id));
+      return prev.filter((item) => activeIdSet.has(item.productId));
+    });
+  }, [activeProducts]);
 
   // If navigated from Manager uncompleted list to log this branch:
   useEffect(() => {
@@ -370,8 +426,34 @@ export const VisitReportForm: React.FC = () => {
 
           {/* Step 2: Product Lineup & Inventory */}
           <section className="bg-white rounded-3xl p-4 sm:p-5 border border-black/[0.06] shadow-2xs">
+            {selectedStore ? (
+              <div className="mb-3.5 pb-2.5 border-b border-black/[0.05] flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${getChainStyle(selectedStore.chain, chains).pillClass}`}>
+                    {selectedStore.chain} Assortment
+                  </span>
+                  <span className="text-xs font-semibold text-stone-800">
+                    {activeProducts.length} Authorized SKUs
+                  </span>
+                </div>
+                <span className="text-[11px] text-stone-400 hidden sm:inline">
+                  Assigned for {selectedStore.name}
+                </span>
+              </div>
+            ) : (
+              <div className="mb-3.5 pb-2.5 border-b border-black/[0.05] flex items-center justify-between">
+                <div className="flex items-center space-x-2 text-stone-500 text-xs">
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-200">
+                    Standard Assortment
+                  </span>
+                  <span className="text-[11px] text-stone-500">
+                    {activeProducts.length} Standard SKUs (Choithrams &amp; Emarat). Select a store to switch.
+                  </span>
+                </div>
+              </div>
+            )}
             <InventorySection
-              products={products}
+              products={activeProducts}
               inventory={inventory}
               onChange={setInventory}
             />
@@ -380,7 +462,7 @@ export const VisitReportForm: React.FC = () => {
           {/* Step 3: Order Requests */}
           <section>
             <OrderSection
-              products={products}
+              products={activeProducts}
               orderNeeded={orderNeeded}
               orderItems={orderItems}
               orderNotes={orderNotes}

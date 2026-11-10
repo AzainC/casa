@@ -23,47 +23,65 @@ export const saveOrderNotificationEmail = (email: string): void => {
 
 export const ORDER_NOTIFICATION_EMAIL = DEFAULT_ORDER_NOTIFICATION_EMAIL;
 
+const getChainColor = (chain: string = ''): { bg: string; text: string; border: string } => {
+  const c = chain.toLowerCase();
+  if (c.includes('grandiose')) {
+    return { bg: '#F3E8FF', text: '#6B21A8', border: '#D8B4FE' };
+  }
+  if (c.includes('emarat')) {
+    return { bg: '#ECFDF5', text: '#047857', border: '#A7F3D0' };
+  }
+  if (c.includes('choithram')) {
+    return { bg: '#FEF2F2', text: '#B91C1C', border: '#FECACA' };
+  }
+  return { bg: '#F5F5F7', text: '#1D1D1F', border: '#E5E5EA' };
+};
+
 /**
  * Generate a minimal, Apple-style HTML email body for Casa Pons Order Requests.
- * Designed with Apple's iconic design language: generous whitespace, refined San Francisco
- * typography, clean hairline dividers, and pure minimalist elegance.
+ * Designed to showcase exclusively the requested replenishment items and essential
+ * order logistics in clean Apple typography, hairline dividers, and minimal styling.
  */
 export const generateOrderEmailHtml = (report: VisitReport): string => {
+  const chainBadge = getChainColor(report.store.chain);
   const requestedItems = (report.orderItems || []).filter(
-    (i) => i.requested && i.quantity > 0
+    (i) => i.requested && Number(i.quantity) > 0
   );
 
-  const totalQuantity = requestedItems.reduce((acc, curr) => acc + (Number(curr.quantity) || 0), 0);
+  const totalQuantity = requestedItems.reduce(
+    (acc, curr) => acc + (Number(curr.quantity) || 0),
+    0
+  );
 
   const itemsRows = requestedItems.length > 0
     ? requestedItems
-      .map(
-        (item) => `
-      <tr>
-        <td style="padding: 14px 0; border-bottom: 1px solid #F5F5F7; vertical-align: top;">
-          <div style="font-size: 14px; font-weight: 600; color: #1D1D1F; letter-spacing: -0.01em;">
-            ${item.productName}
-          </div>
-          <div style="font-size: 12px; color: #86868B; margin-top: 2px;">
-            Artisan Confectionery
-          </div>
-        </td>
-        <td style="padding: 14px 0; border-bottom: 1px solid #F5F5F7; text-align: right; vertical-align: top;">
-          <span style="font-size: 14px; font-weight: 600; color: #1D1D1F; font-variant-numeric: tabular-nums;">
-            ${item.quantity} units
-          </span>
-        </td>
-      </tr>
-    `
-      )
-      .join('')
+        .map(
+          (item) => `
+        <tr>
+          <td style="padding: 14px 0; border-bottom: 1px solid #F5F5F7; vertical-align: top;">
+            <div style="font-size: 14px; font-weight: 600; color: #1D1D1F; letter-spacing: -0.01em;">
+              ${item.productName}
+            </div>
+            <div style="font-size: 12px; color: #86868B; margin-top: 2px;">
+              Artisan Confectionery • Replenishment
+            </div>
+          </td>
+          <td style="padding: 14px 0; border-bottom: 1px solid #F5F5F7; text-align: right; vertical-align: top;">
+            <span style="font-size: 14px; font-weight: 700; color: #0071E3; font-variant-numeric: tabular-nums;">
+              +${item.quantity} units
+            </span>
+          </td>
+        </tr>
+      `
+        )
+        .join('')
     : `
-      <tr>
-        <td colspan="2" style="padding: 18px 0; text-align: center; color: #86868B; font-size: 13px;">
-          Replenishment requested (quantities to be confirmed)
-        </td>
-      </tr>
-    `;
+        <tr>
+          <td colspan="2" style="padding: 20px 0; text-align: center; color: #86868B; font-size: 13px;">
+            Replenishment requested (quantities to be confirmed by operations)
+          </td>
+        </tr>
+      `;
 
   const managerContactDisplay = report.managerName
     ? `${report.managerName}${report.managerPhone ? ` • ${report.managerPhone}` : ''}`
@@ -77,7 +95,7 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
-  <title>Casa Pons Order Request</title>
+  <title>Casa Pons Order Request - ${report.store.name}</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #F5F5F7; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Icons', 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #1D1D1F;">
 
@@ -86,7 +104,7 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
     <tr>
       <td align="center">
         <!-- Main Card -->
-        <table role="presentation" width="100%" style="max-width: 540px; background-color: #FFFFFF; border-radius: 18px; border: 1px solid #E5E5EA; overflow: hidden;" cellspacing="0" cellpadding="0">
+        <table role="presentation" width="100%" style="max-width: 540px; background-color: #FFFFFF; border-radius: 18px; border: 1px solid #E5E5EA; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03);" cellspacing="0" cellpadding="0">
           <tr>
             <td style="padding: 36px 36px 32px;">
 
@@ -94,8 +112,11 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-bottom: 1px solid #E5E5EA; padding-bottom: 20px;">
                 <tr>
                   <td>
-                    <span style="font-size: 11px; font-weight: 700; letter-spacing: 2px; color: #1D1D1F; text-transform: uppercase;">
+                    <span style="font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #1D1D1F; text-transform: uppercase;">
                       CASA PONS
+                    </span>
+                    <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700; background-color: ${chainBadge.bg}; color: ${chainBadge.text}; border: 1px solid ${chainBadge.border}; text-transform: uppercase;">
+                      ${report.store.chain}
                     </span>
                   </td>
                   <td align="right">
@@ -115,11 +136,11 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
                   Order Request for ${report.store.name}
                 </h1>
                 <p style="margin: 6px 0 0 0; font-size: 13px; color: #86868B; line-height: 1.4;">
-                  Logged during a store visit by ${report.merchandiserName} at ${report.formattedTime}.
+                  Logged during a store visit by <strong style="color: #1D1D1F;">${report.merchandiserName}</strong> at ${report.formattedTime}.
                 </p>
               </div>
 
-              <!-- Ordered Items List (Apple Receipt Style) -->
+              <!-- Requested Items List (Apple Receipt Style) -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top: 1px solid #E5E5EA; margin-top: 8px;">
                 ${itemsRows}
                 <!-- Total Row -->
@@ -130,7 +151,7 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
                     </span>
                   </td>
                   <td style="padding: 16px 0; border-bottom: 1px solid #E5E5EA; text-align: right;">
-                    <span style="font-size: 15px; font-weight: 700; color: #1D1D1F; font-variant-numeric: tabular-nums;">
+                    <span style="font-size: 15px; font-weight: 700; color: #0071E3; font-variant-numeric: tabular-nums;">
                       ${totalQuantity} units
                     </span>
                   </td>
@@ -145,7 +166,7 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
                       <div style="font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.5px;">
                         Location
                       </div>
-                      <div style="font-size: 13px; font-weight: 500; color: #1D1D1F; margin-top: 3px;">
+                      <div style="font-size: 13px; font-weight: 600; color: #1D1D1F; margin-top: 3px;">
                         ${report.store.name}
                       </div>
                       <div style="font-size: 11px; color: #86868B; margin-top: 1px;">
@@ -163,12 +184,33 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
                     </td>
                   </tr>
 
-                
+                  <tr>
+                    <td width="50%" valign="top">
+                      <div style="font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.5px;">
+                        Merchandiser
+                      </div>
+                      <div style="font-size: 13px; font-weight: 500; color: #1D1D1F; margin-top: 3px;">
+                        ${report.merchandiserName}
+                      </div>
+                      <div style="font-size: 11px; color: #86868B; margin-top: 1px;">
+                        ID: ${report.merchandiserId || 'Staff'}
+                      </div>
+                    </td>
+
+                    <td width="50%" valign="top">
+                      <div style="font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.5px;">
+                        Audit Reference
+                      </div>
+                      <div style="font-size: 12px; font-family: monospace; color: #86868B; margin-top: 3px;">
+                        ${report.id}
+                      </div>
+                    </td>
+                  </tr>
                 </table>
               </div>
 
               ${report.orderNotes
-      ? `
+                ? `
               <!-- Merchandiser Remarks -->
               <div style="padding-top: 20px; padding-bottom: 20px; border-bottom: 1px solid #E5E5EA;">
                 <div style="font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
@@ -179,13 +221,8 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
                 </div>
               </div>
               `
-      : ''
-    }
-
-              <!-- Apple-style Primary Action -->
-              <div style="padding-top: 28px; text-align: center;">
-               
-              </div>
+                : ''
+              }
 
             </td>
           </tr>
@@ -195,12 +232,11 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
         <table role="presentation" width="100%" style="max-width: 540px; margin-top: 24px;" cellspacing="0" cellpadding="0">
           <tr>
             <td style="text-align: center; padding: 0 16px;">
-             
-             <p style="margin: 0; font-size: 11px; color: #86868B; line-height: 1.5;">
-  This email was sent at the speed of Azain asking for a Spanish latte <span style="color: #FF3B30;">&#10084;</span>
-</p>
+              <p style="margin: 0; font-size: 11px; color: #86868B; line-height: 1.5;">
+                This email was sent at the speed of Azain asking for a Spanish latte <span style="color: #FF3B30;">&#10084;</span>
+              </p>
               <p style="margin: 6px 0 0 0; font-size: 10px; color: #AEAEB2;">
-                Casa Pons. All rights reserved.
+                Casa Pons Operations • Merchandising &amp; Supply Chain Desk
               </p>
             </td>
           </tr>
@@ -216,34 +252,39 @@ export const generateOrderEmailHtml = (report: VisitReport): string => {
 };
 
 /**
- * Generate clean, minimal plain text version for mailto or text clients
+ * Generate clean, minimal plain text version for mailto or text clients,
+ * showing exclusively the requested items.
  */
 export const generateOrderEmailPlainText = (report: VisitReport): string => {
   const requestedItems = (report.orderItems || []).filter(
-    (i) => i.requested && i.quantity > 0
+    (i) => i.requested && Number(i.quantity) > 0
+  );
+
+  const totalQuantity = requestedItems.reduce(
+    (acc, curr) => acc + (Number(curr.quantity) || 0),
+    0
   );
 
   const itemsList = requestedItems.length > 0
-    ? requestedItems.map((i) => `  ${i.productName}: ${i.quantity} units`).join('\n')
+    ? requestedItems.map((i) => `  • ${i.productName}: ${i.quantity} units`).join('\n')
     : '  Replenishment requested (quantities to be confirmed)';
 
   return `
-Casa Pons — Replenishment Request
+Casa Pons — Replenishment Order Request
 
 Store: ${report.store.name} (${report.store.chain})
 Region: ${report.store.region || 'UAE'}
 Date & Time: ${report.formattedDate} at ${report.formattedTime}
-Merchandiser: ${report.merchandiserName} (${report.merchandiserId})
+Merchandiser: ${report.merchandiserName} (${report.merchandiserId || 'Staff'})
 Store In-Charge: ${report.managerName || 'Not recorded'}${report.managerPhone ? ` (${report.managerPhone})` : ''}
 Reference: ${report.id}
 
+==================================================
 REQUESTED ITEMS:
+==================================================
 ${itemsList}
 
-INVENTORY STATUS:
-  Stock on Hand: ${report.totalStockOnHand} units
-  Out of Stock: ${report.outOfStockCount} SKUs
-  Cleanliness: ${report.isClean ? 'Clean & Front Faced' : 'Needs Restock'}
+Total Requested: ${totalQuantity} units
 ${report.orderNotes ? `\nNOTES:\n"${report.orderNotes}"\n` : ''}
 Casa Pons Operations & Inventory Replenishment Desk
   `.trim();
@@ -287,6 +328,7 @@ export const sendOrderNotificationEmail = async (
   }
 
   const targetEmail = recipientEmail || getOrderNotificationEmail();
+  const subject = `Order Request: ${report.store.name} (${report.store.chain})`;
   const html = generateOrderEmailHtml(report);
   const plainText = generateOrderEmailPlainText(report);
 
@@ -301,7 +343,7 @@ export const sendOrderNotificationEmail = async (
         body: JSON.stringify({
           action: 'order_email_dispatch',
           orderEmailTo: targetEmail,
-          orderEmailSubject: `Order Request: ${report.store.name} (${report.store.chain})`,
+          orderEmailSubject: subject,
           orderEmailHtml: html,
           orderEmailText: plainText,
           reportId: report.id,

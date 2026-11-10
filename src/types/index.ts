@@ -29,6 +29,7 @@ export interface ProductItem {
   imageUrl: string;
   description: string;
   suggestedRetailPrice?: string;
+  chains?: string[]; // Specific supermarket chains this SKU is assigned to (e.g. ['Choithrams', 'Emarat'], ['Grandiose'], or ['All'])
 }
 
 export type ShelfAvailability = 'Available' | 'Out of Stock' | 'N/A';
@@ -36,6 +37,7 @@ export type ShelfAvailability = 'Available' | 'Out of Stock' | 'N/A';
 export interface ProductInventoryState {
   productId: string;
   productName: string;
+  weight?: string;
   isAvailable: boolean; // Shelf availability: Yes / No
   availabilityStatus?: ShelfAvailability;
   stockOnHand: number;  // In PCS

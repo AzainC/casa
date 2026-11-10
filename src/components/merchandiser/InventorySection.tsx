@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import type { ProductItem, ProductInventoryState } from '../../types';
 import { ProductCard } from './ProductCard';
 import {
@@ -8,7 +8,8 @@ import {
   Layers,
   RotateCcw,
   PlusCircle,
-  Slash
+  Slash,
+  Search
 } from 'lucide-react';
 
 interface InventorySectionProps {
@@ -22,9 +23,21 @@ export const InventorySection: React.FC<InventorySectionProps> = ({
   inventory,
   onChange,
 }) => {
-  const handleItemChange = (index: number, updatedItem: ProductInventoryState) => {
-    const next = [...inventory];
-    next[index] = updatedItem;
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const filteredProducts = useMemo(() => {
+    if (!searchTerm.trim()) return products;
+    const q = searchTerm.toLowerCase().trim();
+    return products.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.flavorProfile && p.flavorProfile.toLowerCase().includes(q)) ||
+        (p.weightCategory && p.weightCategory.toLowerCase().includes(q))
+    );
+  }, [products, searchTerm]);
+
+  const handleItemChange = (productId: string, updatedItem: ProductInventoryState) => {
+    const next = inventory.map((item) => (item.productId === productId ? updatedItem : item));
     onChange(next);
   };
 
@@ -158,10 +171,24 @@ export const InventorySection: React.FC<InventorySectionProps> = ({
         </div>
       </div>
 
-      {/* 5 Product Cards */}
+      {/* Live Product Search / Filter when multiple products exist */}
+      {products.length > 4 && (
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder={`Filter ${products.length} products by name or flavor...`}
+            className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-black/[0.08] rounded-xl focus:outline-none focus:border-stone-900/40 text-stone-900 placeholder:text-stone-400 shadow-2xs transition"
+          />
+        </div>
+      )}
+
+      {/* Product Cards */}
       <div className="space-y-3">
-        {products.map((product, index) => {
-          const itemState = inventory[index] || {
+        {filteredProducts.map((product, index) => {
+          const itemState = inventory.find((i) => i.productId === product.id) || {
             productId: product.id,
             productName: product.name,
             isAvailable: true,
@@ -174,11 +201,17 @@ export const InventorySection: React.FC<InventorySectionProps> = ({
               key={product.id}
               product={product}
               state={itemState}
-              onChange={(updated) => handleItemChange(index, updated)}
+              onChange={(updated) => handleItemChange(product.id, updated)}
               index={index}
             />
           );
         })}
+
+        {filteredProducts.length === 0 && (
+          <div className="bg-white rounded-2xl p-8 text-center border border-black/[0.06] text-stone-400 text-xs">
+            No products matching &quot;{searchTerm}&quot; found.
+          </div>
+        )}
       </div>
     </div>
   );

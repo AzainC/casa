@@ -171,7 +171,7 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, on
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold text-stone-900 uppercase tracking-wider flex items-center">
                 <Package className="w-3.5 h-3.5 mr-1.5 text-stone-400" />
-                Product Lineup &amp; Inventory Status (5 SKUs)
+                Product Lineup &amp; Inventory Status ({report.inventory.length} SKUs)
               </h4>
               <span className="text-xs font-mono font-semibold text-stone-700 bg-stone-100 px-2 py-0.5 rounded-md">
                 Total: {report.totalStockOnHand} PCS

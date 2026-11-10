@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { VisitReport, StoreLocation, StoreManagerContact, ProductItem, ChainConfig } from '../types';
 import { INITIAL_MOCK_REPORTS } from '../data/mockReports';
-import { CASA_PONS_PRODUCTS } from '../data/products';
+import { CASA_PONS_PRODUCTS, isProductAvailableForChain, getProductsForChain } from '../data/products';
 import { STORES_DATA } from '../data/stores';
 import { DEFAULT_CHAINS } from '../utils/chainStyles';
 import { buildInitialStoreManagers } from '../data/storeManagersSeed';
@@ -58,8 +58,10 @@ interface ReportContextType {
   storeManagers: Record<string, StoreManagerContact>;
   // Dynamic Products Catalog
   products: ProductItem[];
+  getProductsForChain: (chainName?: string) => ProductItem[];
   updateProduct: (product: ProductItem) => void;
   addProduct: (product: ProductItem) => void;
+  addProducts: (products: ProductItem[]) => void;
   deleteProduct: (id: string) => void;
   resetProducts: () => void;
   // Dynamic Stores / Places Catalog
@@ -146,6 +148,32 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return {};
   });
 
+  // Helper to ensure all products have chain assignments and default assortments are merged
+  const mergeProductsWithDefaults = (existingList: ProductItem[]): ProductItem[] => {
+    const existingMap = new Map(existingList.map((p) => [p.id, p]));
+    const result: ProductItem[] = [];
+
+    for (const prod of existingList) {
+      if (!prod.chains || prod.chains.length === 0) {
+        result.push({
+          ...prod,
+          chains: ['Choithrams', 'Emarat'],
+        });
+      } else {
+        result.push(prod);
+      }
+    }
+
+    // Ensure default products (including Grandiose exclusive SKUs) are present
+    for (const def of CASA_PONS_PRODUCTS) {
+      if (!existingMap.has(def.id)) {
+        result.push(def);
+      }
+    }
+
+    return result;
+  };
+
   // Dynamic Products Catalog
   const [products, setProducts] = useState<ProductItem[]>(() => {
     try {
@@ -153,7 +181,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          return mergeProductsWithDefaults(parsed);
         }
       }
     } catch (e) {
@@ -161,6 +189,10 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     return CASA_PONS_PRODUCTS;
   });
+
+  const getProductsForChainCallback = useCallback((chainName?: string) => {
+    return getProductsForChain(chainName, products);
+  }, [products]);
 
   useEffect(() => {
     try {
@@ -181,6 +213,15 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const addProduct = (newProd: ProductItem) => {
     setProducts((prev) => {
       const next = [...prev, newProd];
+      saveProductsToCloud(next);
+      return next;
+    });
+  };
+
+  const addProducts = (newProds: ProductItem[]) => {
+    if (!newProds || newProds.length === 0) return;
+    setProducts((prev) => {
+      const next = [...prev, ...newProds];
       saveProductsToCloud(next);
       return next;
     });
@@ -542,9 +583,10 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       if (config.products && config.products.length > 0) {
-        setProducts(config.products);
+        const merged = mergeProductsWithDefaults(config.products);
+        setProducts(merged);
         try {
-          localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(config.products));
+          localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(merged));
         } catch (e) {}
       }
 
@@ -600,9 +642,10 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               try {
                 const parsedProds = JSON.parse(newRow.phone || '[]');
                 if (Array.isArray(parsedProds) && parsedProds.length > 0) {
-                  setProducts(parsedProds);
+                  const merged = mergeProductsWithDefaults(parsedProds);
+                  setProducts(merged);
                   try {
-                    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(parsedProds));
+                    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(merged));
                   } catch (e) {}
                 }
               } catch (err) {
@@ -844,8 +887,10 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         saveStoreManager,
         storeManagers,
         products,
+        getProductsForChain: getProductsForChainCallback,
         updateProduct,
         addProduct,
+        addProducts,
         deleteProduct,
         resetProducts,
         stores,

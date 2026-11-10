@@ -6,7 +6,8 @@ import {
   Smartphone,
   Maximize2,
   User,
-  CheckCircle2
+  CheckCircle2,
+  ShieldCheck
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -149,6 +150,29 @@ export const Navbar: React.FC = () => {
                         </button>
                       </div>
                     </form>
+
+                    <div className="pt-2.5 mt-2.5 border-t border-black/[0.06]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveView('admin');
+                          setIsEditingProfile(false);
+                        }}
+                        className={`w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-between transition shadow-2xs active:scale-98 ${
+                          activeView === 'admin'
+                            ? 'bg-stone-900 text-white'
+                            : 'bg-stone-100/90 hover:bg-stone-200 text-stone-800'
+                        }`}
+                      >
+                        <span className="flex items-center space-x-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Admin Mode</span>
+                        </span>
+                        <span className="text-[10px] opacity-75 font-mono px-1.5 py-0.5 rounded bg-black/5">
+                          {activeView === 'admin' ? 'Active' : 'Open'}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

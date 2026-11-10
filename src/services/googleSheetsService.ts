@@ -60,12 +60,16 @@ export const formatReportForSheets = (report: VisitReport) => {
     isClean: report.isClean ? 'Yes (Clean)' : 'No (Needs Cleaning)',
     displayNotes: report.displayNotes || '',
     status: report.status,
-    // Include 5 Official Casa Pons SKU columns
+    // Include 5 Official Casa Pons SKU columns for backwards compatibility
     sku_babyPecanCaramel: skuSummaries['Baby Pecan Caramel'] || '',
     sku_chocoChipsMilk140: skuSummaries['Choco Chips Milk Chocolate 140g'] || '',
     sku_chocoChipsMilk40: skuSummaries['Choco Chips Milk Chocolate 40g'] || '',
     sku_chocoChipsPB140: skuSummaries['Choco Chips with Peanut Butter 140g'] || '',
     sku_chocoChipsPB40: skuSummaries['Choco Chips with Peanut Butter 40g'] || '',
+    // Dynamic SKU audit for all products (Grandiose, Choithrams, Emarat, etc.)
+    allProductsAudit: report.inventory.map(i => `${i.productName}: ${i.isAvailable && Number(i.stockOnHand) > 0 ? `${i.stockOnHand} pcs` : 'OOS'}${i.expiryDate ? ` (Exp: ${i.expiryDate})` : ''}`).join(' | '),
+    allSkusCount: report.inventory.length,
+    skuSummariesJson: JSON.stringify(skuSummaries),
     // Photos count (omitting heavy base64 dataUrls to minimize webhook egress)
     photoCount: report.photos ? report.photos.length : 0,
     // Automatic Order Email Dispatch
