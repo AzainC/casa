@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { VisitReport, StorePhoto } from '../../types';
 import { useReports } from '../../context/ReportContext';
 import { fetchReportPhotos } from '../../services/supabaseClient';
+import { getChainStyle, renderChainIcon } from '../../utils/chainStyles';
 import { 
   X, 
   MapPin, 
@@ -29,9 +30,11 @@ interface ReportDetailModalProps {
 }
 
 export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, onClose }) => {
-  const { products } = useReports();
+  const { products, chains } = useReports();
   const [activePhoto, setActivePhoto] = useState<StorePhoto | null>(null);
   const [modalPhotos, setModalPhotos] = useState<StorePhoto[]>(() => report.photos || []);
+
+  const chainStyle = getChainStyle(report.store.chain, chains);
 
   useEffect(() => {
     if (!report.photos || report.photos.length === 0 || !report.photos[0]?.dataUrl) {
@@ -59,21 +62,13 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({ report, on
         <div className="sticky top-0 z-20 bg-stone-900 text-white p-4 sm:p-5 rounded-t-3xl border-b border-white/10 flex items-center justify-between shadow-xs">
           <div className="flex items-center space-x-3">
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${
-                report.store.chain === 'Choithrams'
-                  ? 'bg-emerald-800'
-                  : 'bg-amber-700'
-              }`}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow-2xs ${chainStyle.solidClass}`}
             >
-              {report.store.chain === 'Choithrams' ? (
-                <Building2 className="w-5 h-5" />
-              ) : (
-                <Fuel className="w-5 h-5" />
-              )}
+              {renderChainIcon(chainStyle.iconType, 'w-5 h-5')}
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-[10px] uppercase font-bold px-2 py-0.2 rounded bg-white/15 text-stone-200">
+                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${chainStyle.pillClass}`}>
                   {report.store.chain}
                 </span>
                 <span className="text-xs text-stone-400 font-mono">

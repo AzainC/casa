@@ -1,4 +1,11 @@
-export type ChainType = 'Choithrams' | 'Emarat';
+export type ChainType = string;
+
+export interface ChainConfig {
+  id: string;
+  name: string;
+  color: string;
+  icon?: 'building' | 'fuel' | 'cart' | 'store' | 'tag';
+}
 
 export interface StoreLocation {
   id: string;

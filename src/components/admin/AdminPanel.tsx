@@ -38,8 +38,19 @@ import {
   Copy,
   Check,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Store,
+  ShoppingCart,
+  Tag,
+  Palette
 } from 'lucide-react';
+import {
+  AVAILABLE_CHAIN_COLORS,
+  getChainStyle,
+  renderChainIcon,
+  DEFAULT_CHAINS,
+  type ChainColorOption
+} from '../../utils/chainStyles';
 
 export const AdminPanel: React.FC = () => {
   const {
@@ -52,6 +63,11 @@ export const AdminPanel: React.FC = () => {
     updateStore,
     deleteStore,
     resetStores,
+    chains,
+    addChain,
+    updateChain,
+    deleteChain,
+    resetChains,
     setActiveView,
     sheetsWebhookUrl,
     updateSheetsWebhookUrl,
@@ -179,27 +195,37 @@ export const AdminPanel: React.FC = () => {
   const [isAddPlaceModal, setIsAddPlaceModal] = useState(false);
   const [deleteTargetPlace, setDeleteTargetPlace] = useState<StoreLocation | null>(null);
 
+  // Supermarket Category & Color Management State
+  const [activeColorPickerId, setActiveColorPickerId] = useState<string | null>(null);
+  const [isAddCategoryModal, setIsAddCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryColor, setNewCategoryColor] = useState('purple');
+  const [newCategoryIcon, setNewCategoryIcon] = useState<'store' | 'building' | 'fuel' | 'cart' | 'tag'>('store');
+
   // New Place Form State
   const [newPlaceName, setNewPlaceName] = useState('');
-  const [newPlaceChainChoice, setNewPlaceChainChoice] = useState<'Choithrams' | 'Emarat' | 'Other'>('Choithrams');
+  const [newPlaceChainChoice, setNewPlaceChainChoice] = useState<string>('Choithrams');
   const [newPlaceCustomChain, setNewPlaceCustomChain] = useState('');
+  const [newPlaceCustomColor, setNewPlaceCustomColor] = useState('purple');
   const [newPlaceRegion, setNewPlaceRegion] = useState('Dubai');
 
   // Edit Place State
   const [editingPlace, setEditingPlace] = useState<StoreLocation | null>(null);
   const [editPlaceName, setEditPlaceName] = useState('');
-  const [editPlaceChainChoice, setEditPlaceChainChoice] = useState<'Choithrams' | 'Emarat' | 'Other'>('Choithrams');
+  const [editPlaceChainChoice, setEditPlaceChainChoice] = useState<string>('Choithrams');
   const [editPlaceCustomChain, setEditPlaceCustomChain] = useState('');
+  const [editPlaceCustomColor, setEditPlaceCustomColor] = useState('purple');
   const [editPlaceRegion, setEditPlaceRegion] = useState('Dubai');
 
-  // Extract all unique chains present in current stores
+  // Extract all unique chains present in current stores and configured chains
   const uniqueChains = useMemo(() => {
     const set = new Set<string>();
+    chains.forEach((c) => set.add(c.name));
     stores.forEach((s) => {
       if (s.chain) set.add(s.chain);
     });
     return Array.from(set);
-  }, [stores]);
+  }, [stores, chains]);
 
   const filteredPlaces = useMemo(() => {
     const q = placeSearch.toLowerCase().trim();
@@ -218,8 +244,9 @@ export const AdminPanel: React.FC = () => {
 
   const handleOpenAddPlace = () => {
     setNewPlaceName('');
-    setNewPlaceChainChoice('Choithrams');
+    setNewPlaceChainChoice(chains[0]?.name || 'Choithrams');
     setNewPlaceCustomChain('');
+    setNewPlaceCustomColor('purple');
     setNewPlaceRegion('Dubai');
     setIsAddPlaceModal(true);
   };
@@ -228,10 +255,18 @@ export const AdminPanel: React.FC = () => {
     e.preventDefault();
     if (!newPlaceName.trim()) return;
 
-    const finalChain =
-      newPlaceChainChoice === 'Other'
-        ? (newPlaceCustomChain.trim() || 'Retail Partner')
-        : newPlaceChainChoice;
+    let finalChain = newPlaceChainChoice;
+    if (newPlaceChainChoice === 'Other') {
+      finalChain = newPlaceCustomChain.trim() || 'Retail Partner';
+      // Auto-register new chain if not yet in chains list
+      if (!chains.some((c) => c.name.toLowerCase() === finalChain.toLowerCase())) {
+        addChain({
+          name: finalChain,
+          color: newPlaceCustomColor,
+          icon: 'store',
+        });
+      }
+    }
 
     const created = addStore({
       name: newPlaceName.trim(),
@@ -246,13 +281,15 @@ export const AdminPanel: React.FC = () => {
   const handleOpenEditPlace = (store: StoreLocation) => {
     setEditingPlace(store);
     setEditPlaceName(store.name);
-    if (store.chain === 'Choithrams' || store.chain === 'Emarat') {
-      setEditPlaceChainChoice(store.chain);
+    const matched = chains.find((c) => c.name.toLowerCase() === (store.chain || '').toLowerCase());
+    if (matched) {
+      setEditPlaceChainChoice(matched.name);
       setEditPlaceCustomChain('');
     } else {
       setEditPlaceChainChoice('Other');
-      setEditPlaceCustomChain(store.chain);
+      setEditPlaceCustomChain(store.chain || '');
     }
+    setEditPlaceCustomColor('purple');
     setEditPlaceRegion(store.region || 'Dubai');
   };
 
@@ -260,10 +297,17 @@ export const AdminPanel: React.FC = () => {
     e.preventDefault();
     if (!editingPlace || !editPlaceName.trim()) return;
 
-    const finalChain =
-      editPlaceChainChoice === 'Other'
-        ? (editPlaceCustomChain.trim() || 'Retail Partner')
-        : editPlaceChainChoice;
+    let finalChain = editPlaceChainChoice;
+    if (editPlaceChainChoice === 'Other') {
+      finalChain = editPlaceCustomChain.trim() || 'Retail Partner';
+      if (!chains.some((c) => c.name.toLowerCase() === finalChain.toLowerCase())) {
+        addChain({
+          name: finalChain,
+          color: editPlaceCustomColor,
+          icon: 'store',
+        });
+      }
+    }
 
     updateStore({
       ...editingPlace,
@@ -281,6 +325,23 @@ export const AdminPanel: React.FC = () => {
     deleteStore(deleteTargetPlace.id);
     showToast(`Deleted branch: ${deleteTargetPlace.fullLabel} (Synced live)`);
     setDeleteTargetPlace(null);
+  };
+
+  const handleCreateCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+
+    const created = addChain({
+      name: trimmed,
+      color: newCategoryColor,
+      icon: newCategoryIcon,
+    });
+
+    showToast(`Created category "${created.name}" with ${newCategoryColor} badge!`);
+    setNewCategoryName('');
+    setNewCategoryColor('purple');
+    setIsAddCategoryModal(false);
   };
 
   // =========================================================================
@@ -624,18 +685,157 @@ export const AdminPanel: React.FC = () => {
       {/* ========================================================================= */}
       {adminTab === 'places' && (
         <div className="space-y-4">
+          {/* Supermarket Categories & Custom Badge Colors */}
+          <div className="bg-white p-4 rounded-2xl border border-black/[0.06] shadow-2xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-black/[0.04]">
+              <div>
+                <h3 className="text-sm font-bold text-stone-900 flex items-center space-x-2">
+                  <Palette className="w-4 h-4 text-stone-900" />
+                  <span>Supermarket Categories &amp; Badge Colors</span>
+                </h3>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Customize badge colors and icons for each chain. Changes sync instantly to Store Selector, Audit Feed, and Inspection Modals.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewCategoryName('');
+                    setNewCategoryColor('purple');
+                    setNewCategoryIcon('store');
+                    setIsAddCategoryModal(true);
+                  }}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold shadow-2xs transition active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Category</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Category Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+              {chains.map((chain) => {
+                const chainStyle = getChainStyle(chain.name, chains);
+                const branchCount = stores.filter(
+                  (s) => s.chain?.toLowerCase() === chain.name.toLowerCase()
+                ).length;
+                const isColorPickerOpen = activeColorPickerId === chain.id;
+
+                return (
+                  <div
+                    key={chain.id}
+                    className="p-3 rounded-xl border border-black/[0.06] bg-stone-50/70 hover:bg-white hover:border-black/15 transition relative space-y-2.5 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <div
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-white shrink-0 shadow-2xs ${chainStyle.solidClass}`}
+                        >
+                          {renderChainIcon(chainStyle.iconType, 'w-3.5 h-3.5')}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-1.5">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${chainStyle.pillClass}`}
+                            >
+                              {chain.name}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-stone-400 mt-0.5">
+                            {branchCount} {branchCount === 1 ? 'branch' : 'branches'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Delete category button for non-default chains */}
+                      {chain.id !== 'choithrams' && chain.id !== 'emarat' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Delete supermarket category "${chain.name}"?`)) {
+                              deleteChain(chain.id);
+                              showToast(`Deleted category "${chain.name}"`);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                          title="Delete Category"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Color Palette Selector Trigger */}
+                    <div className="relative">
+                      <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-black/[0.06] text-xs">
+                        <div className="flex items-center space-x-2">
+                          <span className={`w-3.5 h-3.5 rounded-full ${chainStyle.previewBg} ring-1 ring-black/10 shrink-0`} />
+                          <span className="text-[11px] font-medium text-stone-700">
+                            {AVAILABLE_CHAIN_COLORS.find((c) => c.id === chain.color)?.name || chain.color}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveColorPickerId(isColorPickerOpen ? null : chain.id)
+                          }
+                          className="text-[11px] font-semibold text-stone-600 hover:text-stone-900 flex items-center space-x-1"
+                        >
+                          <span>Change Color</span>
+                          <ChevronDown className={`w-3 h-3 transition ${isColorPickerOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      </div>
+
+                      {/* Color Palette Dropdown Popover */}
+                      {isColorPickerOpen && (
+                        <div className="absolute top-full left-0 right-0 mt-1.5 p-2 bg-white rounded-xl shadow-lg border border-black/[0.1] z-30 grid grid-cols-2 gap-1.5 animate-in fade-in zoom-in-95">
+                          {AVAILABLE_CHAIN_COLORS.map((colorOpt) => {
+                            const isCurrent = chain.color === colorOpt.id;
+                            return (
+                              <button
+                                key={colorOpt.id}
+                                type="button"
+                                onClick={() => {
+                                  updateChain({ ...chain, color: colorOpt.id });
+                                  setActiveColorPickerId(null);
+                                  showToast(`Set ${chain.name} badge color to ${colorOpt.name}`);
+                                }}
+                                className={`flex items-center space-x-1.5 px-2 py-1.5 rounded-lg text-[11px] text-left transition ${
+                                  isCurrent
+                                    ? 'bg-stone-100 font-bold text-stone-900 border border-stone-300'
+                                    : 'hover:bg-stone-50 text-stone-600'
+                                }`}
+                              >
+                                <span className={`w-3 h-3 rounded-full ${colorOpt.previewBg} shrink-0`} />
+                                <span className="truncate flex-1">{colorOpt.name}</span>
+                                {isCurrent && <Check className="w-3 h-3 text-stone-900 shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Header Bar & Actions */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-black/[0.06] shadow-2xs">
             <div>
               <h2 className="text-sm font-bold text-stone-900 flex items-center space-x-2">
                 <MapPin className="w-4 h-4 text-stone-900" />
-                <span>Store Locations Directory</span>
+                <span>Store Locations Directory ({stores.length} Outlets)</span>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200/60 text-[10px] font-mono font-semibold">
                   Realtime Sync Active
                 </span>
               </h2>
               <p className="text-xs text-stone-500 mt-0.5">
-                Add or delete stores. Changes reflect instantly on all merchandisers' devices and manager dashboards.
+                Add or delete stores across all supermarket chains. Changes reflect instantly on all merchandisers' devices.
               </p>
             </div>
 
@@ -650,11 +850,11 @@ export const AdminPanel: React.FC = () => {
 
               <button
                 onClick={resetStores}
-                title="Reset all store locations to the official 113 UAE stations"
+                title="Reset store locations to default UAE network"
                 className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200/80 text-stone-600 text-xs font-medium border border-black/[0.04] transition"
               >
                 <RotateCcw className="w-3.5 h-3.5 text-stone-400" />
-                <span className="hidden sm:inline">Reset 113 Stores</span>
+                <span className="hidden sm:inline">Reset Stores Directory</span>
               </button>
             </div>
           </div>
@@ -685,18 +885,24 @@ export const AdminPanel: React.FC = () => {
                 >
                   All ({stores.length})
                 </button>
-                {uniqueChains.map((chain) => (
-                  <button
-                    key={chain}
-                    onClick={() => setPlaceChainFilter(chain)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${placeChainFilter === chain
-                      ? 'bg-white text-stone-900 shadow-2xs font-semibold'
-                      : 'text-stone-500 hover:text-stone-900'
-                      }`}
-                  >
-                    {chain} ({stores.filter((s) => s.chain === chain).length})
-                  </button>
-                ))}
+                {uniqueChains.map((chain) => {
+                  const cStyle = getChainStyle(chain, chains);
+                  const isCurrent = placeChainFilter === chain;
+                  return (
+                    <button
+                      key={chain}
+                      onClick={() => setPlaceChainFilter(chain)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 ${isCurrent
+                        ? 'bg-white text-stone-900 shadow-2xs font-semibold'
+                        : 'text-stone-500 hover:text-stone-900'
+                        }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${cStyle.previewBg}`} />
+                      <span>{chain}</span>
+                      <span className="text-[10px] text-stone-400">({stores.filter((s) => s.chain === chain).length})</span>
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Region Filter */}
@@ -716,7 +922,9 @@ export const AdminPanel: React.FC = () => {
 
           {/* Places Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredPlaces.map((store) => (
+            {filteredPlaces.map((store) => {
+              const storeStyle = getChainStyle(store.chain, chains);
+              return (
               <div
                 key={store.id}
                 className="bg-white rounded-2xl p-3.5 border border-black/[0.06] shadow-2xs flex flex-col justify-between hover:border-black/[0.12] transition group"
@@ -724,12 +932,7 @@ export const AdminPanel: React.FC = () => {
                 <div>
                   <div className="flex items-center justify-between gap-1 mb-1.5">
                     <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${store.chain === 'Choithrams'
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200/70'
-                        : store.chain === 'Emarat'
-                          ? 'bg-amber-50 text-amber-800 border-amber-200/70'
-                          : 'bg-stone-100 text-stone-800 border-stone-200/70'
-                        }`}
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${storeStyle.pillClass}`}
                     >
                       {store.chain}
                     </span>
@@ -772,7 +975,8 @@ export const AdminPanel: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
 
           {filteredPlaces.length === 0 && (
@@ -1062,56 +1266,67 @@ export const AdminPanel: React.FC = () => {
 
               <div>
                 <label className="block font-semibold text-stone-700 mb-1">
-                  Retail Chain *
+                  Retail Chain / Category *
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewPlaceChainChoice('Choithrams')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${newPlaceChainChoice === 'Choithrams'
-                      ? 'bg-emerald-800 text-white border-emerald-900 shadow-2xs'
-                      : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
-                      }`}
-                  >
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>Choithrams</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setNewPlaceChainChoice('Emarat')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${newPlaceChainChoice === 'Emarat'
-                      ? 'bg-amber-800 text-white border-amber-900 shadow-2xs'
-                      : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
-                      }`}
-                  >
-                    <Fuel className="w-3.5 h-3.5" />
-                    <span>Emarat</span>
-                  </button>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {chains.map((c) => {
+                    const cStyle = getChainStyle(c.name, chains);
+                    const isSelected = newPlaceChainChoice === c.name;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setNewPlaceChainChoice(c.name)}
+                        className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${
+                          isSelected
+                            ? `${cStyle.solidClass} shadow-2xs ring-2 ring-stone-900 ring-offset-1`
+                            : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        {renderChainIcon(cStyle.iconType, 'w-3.5 h-3.5')}
+                        <span className="truncate">{c.name}</span>
+                      </button>
+                    );
+                  })}
 
                   <button
                     type="button"
                     onClick={() => setNewPlaceChainChoice('Other')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${newPlaceChainChoice === 'Other'
-                      ? 'bg-stone-900 text-white border-stone-900 shadow-2xs'
-                      : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
-                      }`}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${
+                      newPlaceChainChoice === 'Other'
+                        ? 'bg-stone-900 text-white border-stone-900 shadow-2xs'
+                        : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                    }`}
                   >
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>Other...</span>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ New Chain</span>
                   </button>
                 </div>
 
                 {newPlaceChainChoice === 'Other' && (
-                  <div className="mt-2">
+                  <div className="mt-2.5 p-3 bg-stone-50 rounded-xl border border-black/[0.06] space-y-2">
                     <input
                       type="text"
                       required
                       value={newPlaceCustomChain}
                       onChange={(e) => setNewPlaceCustomChain(e.target.value)}
                       placeholder="Enter custom chain name (e.g. Carrefour, Spinneys, Lulu)..."
-                      className="w-full px-3 py-2 bg-stone-50 border border-black/[0.08] rounded-xl focus:outline-none focus:border-stone-900/40 text-stone-900 text-xs"
+                      className="w-full px-3 py-2 bg-white border border-black/[0.08] rounded-xl focus:outline-none focus:border-stone-900/40 text-stone-900 text-xs"
                     />
+                    <div>
+                      <span className="text-[10px] font-semibold text-stone-500 uppercase block mb-1">Badge Color for this new chain:</span>
+                      <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 no-scrollbar">
+                        {AVAILABLE_CHAIN_COLORS.map((col) => (
+                          <button
+                            key={col.id}
+                            type="button"
+                            onClick={() => setNewPlaceCustomColor(col.id)}
+                            className={`w-6 h-6 rounded-full ${col.previewBg} shrink-0 transition ${newPlaceCustomColor === col.id ? 'ring-2 ring-offset-1 ring-stone-900 scale-110' : 'opacity-80 hover:opacity-100'}`}
+                            title={col.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1215,56 +1430,67 @@ export const AdminPanel: React.FC = () => {
 
               <div>
                 <label className="block font-semibold text-stone-700 mb-1">
-                  Retail Chain *
+                  Retail Chain / Category *
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditPlaceChainChoice('Choithrams')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${editPlaceChainChoice === 'Choithrams'
-                      ? 'bg-emerald-800 text-white border-emerald-900 shadow-2xs'
-                      : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
-                      }`}
-                  >
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>Choithrams</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setEditPlaceChainChoice('Emarat')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${editPlaceChainChoice === 'Emarat'
-                      ? 'bg-amber-800 text-white border-amber-900 shadow-2xs'
-                      : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
-                      }`}
-                  >
-                    <Fuel className="w-3.5 h-3.5" />
-                    <span>Emarat</span>
-                  </button>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {chains.map((c) => {
+                    const cStyle = getChainStyle(c.name, chains);
+                    const isSelected = editPlaceChainChoice === c.name;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setEditPlaceChainChoice(c.name)}
+                        className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${
+                          isSelected
+                            ? `${cStyle.solidClass} shadow-2xs ring-2 ring-stone-900 ring-offset-1`
+                            : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        {renderChainIcon(cStyle.iconType, 'w-3.5 h-3.5')}
+                        <span className="truncate">{c.name}</span>
+                      </button>
+                    );
+                  })}
 
                   <button
                     type="button"
                     onClick={() => setEditPlaceChainChoice('Other')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${editPlaceChainChoice === 'Other'
-                      ? 'bg-stone-900 text-white border-stone-900 shadow-2xs'
-                      : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
-                      }`}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${
+                      editPlaceChainChoice === 'Other'
+                        ? 'bg-stone-900 text-white border-stone-900 shadow-2xs'
+                        : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                    }`}
                   >
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>Other...</span>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ New Chain</span>
                   </button>
                 </div>
 
                 {editPlaceChainChoice === 'Other' && (
-                  <div className="mt-2">
+                  <div className="mt-2.5 p-3 bg-stone-50 rounded-xl border border-black/[0.06] space-y-2">
                     <input
                       type="text"
                       required
                       value={editPlaceCustomChain}
                       onChange={(e) => setEditPlaceCustomChain(e.target.value)}
                       placeholder="Enter custom chain name..."
-                      className="w-full px-3 py-2 bg-stone-50 border border-black/[0.08] rounded-xl focus:outline-none focus:border-stone-900/40 text-stone-900 text-xs"
+                      className="w-full px-3 py-2 bg-white border border-black/[0.08] rounded-xl focus:outline-none focus:border-stone-900/40 text-stone-900 text-xs"
                     />
+                    <div>
+                      <span className="text-[10px] font-semibold text-stone-500 uppercase block mb-1">Badge Color:</span>
+                      <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 no-scrollbar">
+                        {AVAILABLE_CHAIN_COLORS.map((col) => (
+                          <button
+                            key={col.id}
+                            type="button"
+                            onClick={() => setEditPlaceCustomColor(col.id)}
+                            className={`w-6 h-6 rounded-full ${col.previewBg} shrink-0 transition ${editPlaceCustomColor === col.id ? 'ring-2 ring-offset-1 ring-stone-900 scale-110' : 'opacity-80 hover:opacity-100'}`}
+                            title={col.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1365,6 +1591,153 @@ export const AdminPanel: React.FC = () => {
                 Yes, Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: ADD SUPERMARKET CATEGORY                                           */}
+      {/* ========================================================================= */}
+      {isAddCategoryModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-black/[0.08] relative"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Palette className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-stone-900 text-sm">Add Supermarket Category</h3>
+                  <p className="text-[11px] text-stone-500">Create a brand category with custom badge styling</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddCategoryModal(false)}
+                className="w-7 h-7 rounded-full bg-stone-100 text-stone-500 hover:text-stone-800 flex items-center justify-center transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCategory} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-stone-700 mb-1">
+                  Category / Brand Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="e.g. Grandiose, Carrefour, Lulu, Spinneys, Viva..."
+                  className="w-full px-3 py-2 bg-stone-50 border border-black/[0.08] rounded-xl focus:outline-none focus:border-stone-900/40 text-stone-900 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-stone-700 mb-1">
+                  Badge Pill Color *
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto p-1 bg-stone-50 rounded-xl border border-black/[0.06]">
+                  {AVAILABLE_CHAIN_COLORS.map((c) => {
+                    const isSelected = newCategoryColor === c.id;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setNewCategoryColor(c.id)}
+                        className={`flex items-center space-x-1.5 p-1.5 rounded-lg border text-[11px] transition ${
+                          isSelected
+                            ? 'bg-white border-stone-800 shadow-2xs font-bold text-stone-900'
+                            : 'border-transparent hover:bg-white/60 text-stone-600'
+                        }`}
+                      >
+                        <span className={`w-3.5 h-3.5 rounded-full ${c.previewBg} shrink-0`} />
+                        <span className="truncate">{c.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-stone-700 mb-1">
+                  Brand Icon
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {[
+                    { id: 'store', label: 'Store', icon: Store },
+                    { id: 'cart', label: 'Cart', icon: ShoppingCart },
+                    { id: 'building', label: 'Building', icon: Building2 },
+                    { id: 'fuel', label: 'Station', icon: Fuel },
+                    { id: 'tag', label: 'Tag', icon: Tag },
+                  ].map((item) => {
+                    const IconComp = item.icon;
+                    const isSelected = newCategoryIcon === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setNewCategoryIcon(item.id as any)}
+                        className={`flex flex-col items-center justify-center p-2 rounded-xl border transition ${
+                          isSelected
+                            ? 'bg-stone-900 text-white border-stone-900 shadow-2xs'
+                            : 'bg-stone-50 text-stone-600 border-black/[0.06] hover:bg-stone-100'
+                        }`}
+                      >
+                        <IconComp className="w-4 h-4 mb-1" />
+                        <span className="text-[10px] font-medium">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Live Preview */}
+              {newCategoryName.trim() && (
+                <div className="p-3 bg-stone-50 rounded-xl border border-black/[0.06] text-xs">
+                  <span className="text-[10px] text-stone-400 uppercase font-semibold block mb-1">
+                    Live Badge Preview
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    {(() => {
+                      const previewStyle = getChainStyle(newCategoryName, [
+                        { id: 'preview', name: newCategoryName, color: newCategoryColor, icon: newCategoryIcon }
+                      ]);
+                      return (
+                        <>
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-white ${previewStyle.solidClass}`}>
+                            {renderChainIcon(newCategoryIcon, 'w-3.5 h-3.5')}
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${previewStyle.pillClass}`}>
+                            {newCategoryName.trim()}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCategoryModal(false)}
+                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-semibold shadow-2xs transition active:scale-95"
+                >
+                  Create Category
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

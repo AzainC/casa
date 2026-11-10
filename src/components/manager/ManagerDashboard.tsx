@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useReports } from '../../context/ReportContext';
-import type { VisitReport, ChainType, StoreLocation, TimePeriodPreset, UncompletedStoreInfo } from '../../types';
+import type { VisitReport, StoreLocation, TimePeriodPreset, UncompletedStoreInfo } from '../../types';
 import { ReportDetailModal } from './ReportDetailModal';
 import { exportReportsToExcel } from '../../utils/excelExport';
+import { getChainStyle, renderChainIcon } from '../../utils/chainStyles';
 import {
   Building2,
   Fuel,
@@ -74,7 +75,8 @@ export const ManagerDashboard: React.FC = () => {
     setPendingStoreToLog,
     getStoreManager,
     products,
-    stores
+    stores,
+    chains
   } = useReports();
 
   // Active Tab: Visited Branches vs Uncompleted Branches
@@ -89,8 +91,22 @@ export const ManagerDashboard: React.FC = () => {
   });
   const [customEndDate, setCustomEndDate] = useState<string>(() => toDateStr(new Date()));
 
+  // Available Chains dynamic list
+  const availableChains = useMemo(() => {
+    const set = new Set<string>();
+    chains.forEach((c) => {
+      if (stores.some((s) => s.chain?.toLowerCase() === c.name.toLowerCase())) {
+        set.add(c.name);
+      }
+    });
+    stores.forEach((s) => {
+      if (s.chain) set.add(s.chain);
+    });
+    return Array.from(set);
+  }, [stores, chains]);
+
   // Filtering State
-  const [chainFilter, setChainFilter] = useState<'All' | ChainType>('All');
+  const [chainFilter, setChainFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [orderFilter, setOrderFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -267,7 +283,7 @@ export const ManagerDashboard: React.FC = () => {
             <span className="uppercase tracking-wider text-[10px]">Casa Pons Field Tracking</span>
             <span>•</span>
             <span className="text-stone-700 bg-stone-100 px-2 py-0.2 rounded-full font-medium">
-              113 Retail Stations
+              {stores.length} Retail Stations
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-stone-900">
@@ -517,37 +533,35 @@ export const ManagerDashboard: React.FC = () => {
             </button>
           </div>
 
-          {/* Chain Filters: All, Choithrams, Emarat */}
-          <div className="grid grid-cols-3 w-full sm:w-auto gap-1 text-xs">
+          {/* Dynamic Chain Filters */}
+          <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto text-xs">
             <button
               onClick={() => setChainFilter('All')}
-              className={`px-3 py-1.5 rounded-full font-medium transition text-center ${chainFilter === 'All'
-                ? 'bg-stone-900 text-white font-semibold'
+              className={`px-3 py-1.5 rounded-full font-medium transition text-center whitespace-nowrap shrink-0 ${chainFilter === 'All'
+                ? 'bg-stone-900 text-white font-semibold shadow-2xs'
                 : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
                 }`}
             >
-              All Chains
+              All Chains ({stores.length})
             </button>
-            <button
-              onClick={() => setChainFilter('Choithrams')}
-              className={`px-3 py-1.5 rounded-full font-medium transition flex items-center justify-center space-x-1 ${chainFilter === 'Choithrams'
-                ? 'bg-emerald-800 text-white font-semibold'
-                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                }`}
-            >
-              <Building2 className="w-3 h-3 shrink-0" />
-              <span>Choithrams</span>
-            </button>
-            <button
-              onClick={() => setChainFilter('Emarat')}
-              className={`px-3 py-1.5 rounded-full font-medium transition flex items-center justify-center space-x-1 ${chainFilter === 'Emarat'
-                ? 'bg-amber-800 text-white font-semibold'
-                : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-                }`}
-            >
-              <Fuel className="w-3 h-3 shrink-0" />
-              <span>Emarat</span>
-            </button>
+
+            {availableChains.map((cName) => {
+              const cStyle = getChainStyle(cName, chains);
+              const isCurActive = chainFilter === cName;
+              return (
+                <button
+                  key={cName}
+                  onClick={() => setChainFilter(cName)}
+                  className={`px-3 py-1.5 rounded-full font-medium transition flex items-center justify-center space-x-1.5 whitespace-nowrap shrink-0 ${isCurActive
+                    ? `${cStyle.solidClass} font-semibold shadow-2xs`
+                    : `border ${cStyle.pillClass} hover:opacity-90`
+                    }`}
+                >
+                  {renderChainIcon(cStyle.iconType, 'w-3 h-3 shrink-0')}
+                  <span>{cName}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -607,7 +621,9 @@ export const ManagerDashboard: React.FC = () => {
               </p>
             </div>
           ) : (
-            filteredVisitedReports.map((report) => (
+            filteredVisitedReports.map((report) => {
+              const chainStyle = getChainStyle(report.store.chain, chains);
+              return (
               <div
                 key={report.id}
                 onClick={() => setSelectedReport(report)}
@@ -617,25 +633,15 @@ export const ManagerDashboard: React.FC = () => {
                   {/* Station Identity & Merchandiser Details */}
                   <div className="flex items-start space-x-3.5">
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${report.store.chain === 'Choithrams'
-                        ? 'bg-emerald-800'
-                        : 'bg-amber-700'
-                        }`}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow-2xs ${chainStyle.solidClass}`}
                     >
-                      {report.store.chain === 'Choithrams' ? (
-                        <Building2 className="w-5 h-5" />
-                      ) : (
-                        <Fuel className="w-5 h-5" />
-                      )}
+                      {renderChainIcon(chainStyle.iconType, 'w-5 h-5')}
                     </div>
 
                     <div>
                       <div className="flex items-center space-x-2">
                         <span
-                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${report.store.chain === 'Choithrams'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
-                            : 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                            }`}
+                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded border ${chainStyle.pillClass}`}
                         >
                           {report.store.chain}
                         </span>
@@ -766,7 +772,8 @@ export const ManagerDashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
@@ -796,30 +803,24 @@ export const ManagerDashboard: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {filteredUncompletedStores.map((item) => (
+              {filteredUncompletedStores.map((item) => {
+                const chainStyle = getChainStyle(item.store.chain, chains);
+                return (
                 <div
                   key={item.store.id}
                   className="bg-white rounded-2xl p-3.5 sm:p-4 border border-black/[0.06] hover:border-black/15 shadow-2xs flex items-center justify-between gap-3 transition"
                 >
                   <div className="flex items-start space-x-3 min-w-0">
                     <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shrink-0 ${item.store.chain === 'Choithrams' ? 'bg-emerald-800' : 'bg-amber-700'
-                        }`}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow-2xs ${chainStyle.solidClass}`}
                     >
-                      {item.store.chain === 'Choithrams' ? (
-                        <Building2 className="w-4 h-4" />
-                      ) : (
-                        <Fuel className="w-4 h-4" />
-                      )}
+                      {renderChainIcon(chainStyle.iconType, 'w-4 h-4')}
                     </div>
 
                     <div className="min-w-0">
                       <div className="flex items-center space-x-1.5">
                         <span
-                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${item.store.chain === 'Choithrams'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
-                            : 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                            }`}
+                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded border ${chainStyle.pillClass}`}
                         >
                           {item.store.chain}
                         </span>
@@ -871,8 +872,9 @@ export const ManagerDashboard: React.FC = () => {
                     <span>Log Visit</span>
                   </button>
                 </div>
-              ))}
-            </div>
+              );
+            })}
+          </div>
           )}
         </div>
       )}

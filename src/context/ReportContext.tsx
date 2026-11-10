@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import type { VisitReport, StoreLocation, StoreManagerContact, ProductItem } from '../types';
+import type { VisitReport, StoreLocation, StoreManagerContact, ProductItem, ChainConfig } from '../types';
 import { INITIAL_MOCK_REPORTS } from '../data/mockReports';
 import { CASA_PONS_PRODUCTS } from '../data/products';
 import { STORES_DATA } from '../data/stores';
+import { DEFAULT_CHAINS } from '../utils/chainStyles';
 import { buildInitialStoreManagers } from '../data/storeManagersSeed';
 import { 
   getSavedWebhookUrl, 
@@ -23,8 +24,11 @@ import {
   saveProductsToCloud,
   fetchStoresFromCloud,
   saveStoresToCloud,
+  fetchChainsFromCloud,
+  saveChainsToCloud,
   APP_PRODUCTS_CONFIG_KEY,
   APP_STORES_CONFIG_KEY,
+  APP_CHAINS_CONFIG_KEY,
   mapRowToReport
 } from '../services/supabaseClient';
 
@@ -64,6 +68,12 @@ interface ReportContextType {
   updateStore: (store: StoreLocation) => void;
   deleteStore: (id: string) => void;
   resetStores: () => void;
+  // Supermarket Categories / Chains Catalog
+  chains: ChainConfig[];
+  addChain: (chain: { name: string; color: string; icon?: 'building' | 'fuel' | 'cart' | 'store' | 'tag' }) => ChainConfig;
+  updateChain: (chain: ChainConfig) => void;
+  deleteChain: (idOrName: string) => void;
+  resetChains: () => void;
   sheetsWebhookUrl: string;
   updateSheetsWebhookUrl: (url: string) => void;
   syncStatus: SyncStatus;
@@ -79,6 +89,7 @@ const STORAGE_KEY = 'casa_pons_visit_reports_v1';
 const MANAGERS_STORAGE_KEY = 'casa_pons_store_managers_v3';
 const PRODUCTS_STORAGE_KEY = 'casa_pons_custom_products_v1';
 const STORES_STORAGE_KEY = 'casa_pons_custom_stores_v1';
+const CHAINS_STORAGE_KEY = 'casa_pons_custom_chains_v1';
 
 // Strips heavy base64 strings so browser localStorage 5MB quota is never exceeded
 function sanitizeReportForStorage(r: VisitReport): VisitReport {
@@ -265,6 +276,117 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     saveStoresToCloud(STORES_DATA);
   };
 
+  // Supermarket Categories / Chains Catalog
+  const [chains, setChains] = useState<ChainConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem(CHAINS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load chains from localStorage', e);
+    }
+    return DEFAULT_CHAINS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAINS_STORAGE_KEY, JSON.stringify(chains));
+    } catch (e) {
+      console.error('Failed to save chains to localStorage', e);
+    }
+  }, [chains]);
+
+  // Ensure any chain present in stores (e.g. Grandiose) is automatically registered
+  useEffect(() => {
+    const existingMap = new Map(chains.map((c) => [c.name.toLowerCase(), c]));
+    let hasChanges = false;
+    const nextChains = [...chains];
+
+    stores.forEach((s) => {
+      if (s.chain && !existingMap.has(s.chain.toLowerCase())) {
+        const lower = s.chain.toLowerCase();
+        const autoColor = lower.includes('grandiose') ? 'purple' : lower.includes('lulu') ? 'red' : 'blue';
+        const newEntry: ChainConfig = {
+          id: lower.replace(/[^a-z0-9]/g, ''),
+          name: s.chain,
+          color: autoColor,
+          icon: 'cart',
+        };
+        existingMap.set(lower, newEntry);
+        nextChains.push(newEntry);
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      setChains(nextChains);
+      saveChainsToCloud(nextChains);
+    }
+  }, [stores]);
+
+  const addChain = (data: { name: string; color: string; icon?: any }): ChainConfig => {
+    const trimmedName = data.name.trim();
+    const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const existing = chains.find((c) => c.name.toLowerCase() === trimmedName.toLowerCase());
+    if (existing) {
+      const updated: ChainConfig = {
+        ...existing,
+        color: data.color || existing.color,
+        icon: data.icon || existing.icon,
+      };
+      updateChain(updated);
+      return updated;
+    }
+
+    const newChain: ChainConfig = {
+      id: slug || `chain-${Date.now().toString().slice(-4)}`,
+      name: trimmedName,
+      color: data.color || 'purple',
+      icon: data.icon || 'store',
+    };
+
+    setChains((prev) => {
+      const next = [...prev, newChain];
+      saveChainsToCloud(next);
+      return next;
+    });
+
+    return newChain;
+  };
+
+  const updateChain = (updated: ChainConfig) => {
+    setChains((prev) => {
+      const next = prev.map((c) =>
+        c.id === updated.id || c.name.toLowerCase() === updated.name.toLowerCase()
+          ? { ...c, ...updated }
+          : c
+      );
+      saveChainsToCloud(next);
+      return next;
+    });
+  };
+
+  const deleteChain = (idOrName: string) => {
+    const target = idOrName.toLowerCase();
+    setChains((prev) => {
+      const next = prev.filter(
+        (c) => c.id.toLowerCase() !== target && c.name.toLowerCase() !== target
+      );
+      saveChainsToCloud(next);
+      return next;
+    });
+  };
+
+  const resetChains = () => {
+    setChains(DEFAULT_CHAINS);
+    localStorage.removeItem(CHAINS_STORAGE_KEY);
+    saveChainsToCloud(DEFAULT_CHAINS);
+  };
+
   // Inspect URL for initial view (/admin or #/admin)
   const getInitialView = (): 'merchandiser' | 'manager' | 'admin' => {
     if (typeof window !== 'undefined') {
@@ -432,6 +554,13 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(config.stores));
         } catch (e) {}
       }
+
+      if (config.chains && config.chains.length > 0) {
+        setChains(config.chains);
+        try {
+          localStorage.setItem(CHAINS_STORAGE_KEY, JSON.stringify(config.chains));
+        } catch (e) {}
+      }
     });
 
     // Live Realtime Subscription (WebSockets)
@@ -494,6 +623,22 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 }
               } catch (err) {
                 console.error('Failed to parse realtime stores:', err);
+              }
+              return;
+            }
+
+            // Live cross-device sync of chains / supermarket categories
+            if (newRow.store_id === APP_CHAINS_CONFIG_KEY) {
+              try {
+                const parsedChains = JSON.parse(newRow.phone || '[]');
+                if (Array.isArray(parsedChains) && parsedChains.length > 0) {
+                  setChains(parsedChains);
+                  try {
+                    localStorage.setItem(CHAINS_STORAGE_KEY, JSON.stringify(parsedChains));
+                  } catch (e) {}
+                }
+              } catch (err) {
+                console.error('Failed to parse realtime chains:', err);
               }
               return;
             }
@@ -668,11 +813,14 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setStoreManagers(seeds);
     setProducts(CASA_PONS_PRODUCTS);
     setStores(STORES_DATA);
+    setChains(DEFAULT_CHAINS);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(MANAGERS_STORAGE_KEY);
     localStorage.removeItem(PRODUCTS_STORAGE_KEY);
     localStorage.removeItem(STORES_STORAGE_KEY);
+    localStorage.removeItem(CHAINS_STORAGE_KEY);
     saveStoresToCloud(STORES_DATA);
+    saveChainsToCloud(DEFAULT_CHAINS);
   };
 
   return (
@@ -705,6 +853,11 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateStore,
         deleteStore,
         resetStores,
+        chains,
+        addChain,
+        updateChain,
+        deleteChain,
+        resetChains,
         sheetsWebhookUrl,
         updateSheetsWebhookUrl,
         syncStatus,

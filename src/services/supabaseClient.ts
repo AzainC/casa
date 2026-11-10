@@ -1,10 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { VisitReport, StoreManagerContact, ProductItem, StoreLocation, StorePhoto } from '../types';
+import type { VisitReport, StoreManagerContact, ProductItem, StoreLocation, StorePhoto, ChainConfig } from '../types';
 
 export const SUPABASE_URL_KEY = 'casa_pons_supabase_url';
 export const SUPABASE_ANON_KEY = 'casa_pons_supabase_anon_key';
 export const APP_PRODUCTS_CONFIG_KEY = '__app_config_products_catalog__';
 export const APP_STORES_CONFIG_KEY = '__app_config_stores_catalog__';
+export const APP_CHAINS_CONFIG_KEY = '__app_config_chains_catalog__';
 
 let cachedClient: SupabaseClient | null = null;
 
@@ -244,11 +245,12 @@ export interface CloudUnifiedConfig {
   managers: Record<string, StoreManagerContact>;
   products: ProductItem[] | null;
   stores: StoreLocation[] | null;
+  chains: ChainConfig[] | null;
 }
 
 /**
- * Unified Cloud Config Fetch: Loads managers, products, and stores in a single roundtrip,
- * eliminating 2 redundant database queries and reducing cloud egress by 66%.
+ * Unified Cloud Config Fetch: Loads managers, products, stores, and supermarket categories/chains
+ * in a single roundtrip, eliminating redundant database queries and reducing cloud egress by 75%.
  */
 export const fetchUnifiedCloudConfig = async (): Promise<CloudUnifiedConfig | null> => {
   const supabase = getSupabase();
@@ -264,6 +266,7 @@ export const fetchUnifiedCloudConfig = async (): Promise<CloudUnifiedConfig | nu
     const managers: Record<string, StoreManagerContact> = {};
     let products: ProductItem[] | null = null;
     let stores: StoreLocation[] | null = null;
+    let chains: ChainConfig[] | null = null;
 
     (data || []).forEach((row) => {
       if (row.store_id === APP_PRODUCTS_CONFIG_KEY) {
@@ -282,6 +285,14 @@ export const fetchUnifiedCloudConfig = async (): Promise<CloudUnifiedConfig | nu
         return;
       }
 
+      if (row.store_id === APP_CHAINS_CONFIG_KEY) {
+        try {
+          const parsed = JSON.parse(row.phone || '[]');
+          if (Array.isArray(parsed) && parsed.length > 0) chains = parsed;
+        } catch (e) {}
+        return;
+      }
+
       if ((row.name && row.name.trim()) || (row.phone && row.phone.trim())) {
         managers[row.store_id] = {
           name: (row.name || '').trim(),
@@ -290,7 +301,7 @@ export const fetchUnifiedCloudConfig = async (): Promise<CloudUnifiedConfig | nu
       }
     });
 
-    return { managers, products, stores };
+    return { managers, products, stores, chains };
   } catch (err) {
     console.error('Failed to fetch unified config from Supabase:', err);
     return null;
@@ -313,7 +324,11 @@ export const fetchStoreManagersFromCloud = async (): Promise<Record<string, Stor
 
     const result: Record<string, StoreManagerContact> = {};
     (data || []).forEach((row) => {
-      if (row.store_id === APP_PRODUCTS_CONFIG_KEY || row.store_id === APP_STORES_CONFIG_KEY) return;
+      if (
+        row.store_id === APP_PRODUCTS_CONFIG_KEY ||
+        row.store_id === APP_STORES_CONFIG_KEY ||
+        row.store_id === APP_CHAINS_CONFIG_KEY
+      ) return;
       if ((row.name && row.name.trim()) || (row.phone && row.phone.trim())) {
         result[row.store_id] = {
           name: (row.name || '').trim(),
@@ -325,6 +340,60 @@ export const fetchStoreManagersFromCloud = async (): Promise<Record<string, Stor
   } catch (err) {
     console.error('Failed to fetch store managers from Supabase:', err);
     return null;
+  }
+};
+
+/**
+ * Fetch dynamic chains / supermarket categories from Supabase Cloud
+ */
+export const fetchChainsFromCloud = async (): Promise<ChainConfig[] | null> => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('store_managers')
+      .select('phone')
+      .eq('store_id', APP_CHAINS_CONFIG_KEY)
+      .maybeSingle();
+
+    if (error || !data || !data.phone) {
+      return null;
+    }
+
+    const parsed = JSON.parse(data.phone);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Could not load chains catalog from cloud:', err);
+  }
+  return null;
+};
+
+/**
+ * Save / Upsert dynamic chains / supermarket categories in Supabase Cloud
+ */
+export const saveChainsToCloud = async (chains: ChainConfig[]): Promise<boolean> => {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase.from('store_managers').upsert({
+      store_id: APP_CHAINS_CONFIG_KEY,
+      name: 'chains_catalog',
+      phone: JSON.stringify(chains),
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error('Failed to sync chains to Supabase:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error saving chains to Supabase:', err);
+    return false;
   }
 };
 

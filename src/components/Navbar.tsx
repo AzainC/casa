@@ -87,23 +87,7 @@ export const Navbar: React.FC = () => {
             {/* Right Utilities: Simulator Frame (Desktop only) & Merchandiser Profile */}
             <div className="flex items-center space-x-1.5 shrink-0">
               {/* Mobile Simulator Frame Toggle (Desktop only) */}
-              <button
-                onClick={() => setIsMobileFrame(!isMobileFrame)}
-                title={isMobileFrame ? 'Switch to Full Screen View' : 'Preview in Mobile Device Bezel'}
-                className="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-stone-100/80 hover:bg-stone-200/60 text-stone-700 border border-black/[0.04] transition"
-              >
-                {isMobileFrame ? (
-                  <>
-                    <Maximize2 className="w-3.5 h-3.5 text-stone-700" />
-                    <span>Full View</span>
-                  </>
-                ) : (
-                  <>
-                    <Smartphone className="w-3.5 h-3.5 text-stone-700" />
-                    <span>Phone View</span>
-                  </>
-                )}
-              </button>
+
 
               {/* Merchandiser Profile Pill */}
               <div className="relative">
