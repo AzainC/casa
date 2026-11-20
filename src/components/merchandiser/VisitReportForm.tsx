@@ -64,7 +64,7 @@ export const VisitReportForm: React.FC = () => {
     return getProductsForChain(selectedStore.chain);
   }, [selectedStore, getProductsForChain]);
 
-  // Initial inventory with sensible defaults
+  // Initial inventory with sensible defaults (defaulting to OOS)
   const createDefaultInventory = (prods?: ProductItem[]): ProductInventoryState[] => {
     const targetProds = prods && prods.length > 0 ? prods : activeProducts;
     const today = new Date();
@@ -76,9 +76,9 @@ export const VisitReportForm: React.FC = () => {
       productId: prod.id,
       productName: prod.name,
       weight: prod.weightCategory,
-      isAvailable: true,
-      availabilityStatus: 'Available',
-      stockOnHand: 12,
+      isAvailable: false,
+      availabilityStatus: 'Out of Stock',
+      stockOnHand: 0,
       expiryDate: dateStr,
     }));
   };
@@ -124,9 +124,9 @@ export const VisitReportForm: React.FC = () => {
           productId: prod.id,
           productName: prod.name,
           weight: prod.weightCategory,
-          isAvailable: true,
-          availabilityStatus: 'Available' as const,
-          stockOnHand: 12,
+          isAvailable: false,
+          availabilityStatus: 'Out of Stock' as const,
+          stockOnHand: 0,
           expiryDate: dateStr,
         };
       });

@@ -53,6 +53,7 @@ export const InventorySection: React.FC<InventorySectionProps> = ({
       ...item,
       stockOnHand: 0,
       isAvailable: false,
+      availabilityStatus: item.availabilityStatus === 'N/A' ? 'N/A' : 'Out of Stock',
     }));
     onChange(updated);
   };
@@ -191,8 +192,9 @@ export const InventorySection: React.FC<InventorySectionProps> = ({
           const itemState = inventory.find((i) => i.productId === product.id) || {
             productId: product.id,
             productName: product.name,
-            isAvailable: true,
-            stockOnHand: 12,
+            isAvailable: false,
+            availabilityStatus: 'Out of Stock',
+            stockOnHand: 0,
             expiryDate: '',
           };
 
